@@ -1,0 +1,35 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}{{ titulo }} · WhaleTV{% endblock %}
+{% block nav_tv %}navlink-active{% endblock %}
+{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / {{ titulo }}{% endblock %}
+
+{% block content %}
+<div class="card max-w-xl">
+    <h2 class="text-xl font-bold text-gray-800 mb-5">{{ titulo }}</h2>
+    <form method="post" novalidate class="space-y-4">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+            <div class="msg msg-error">{{ form.non_field_errors }}</div>
+        {% endif %}
+        {% for field in form %}
+            <div>
+                <label class="lbl" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.help_text %}<p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>{% endif %}
+                {% for error in field.errors %}<p class="text-xs text-red-600 mt-1">{{ error }}</p>{% endfor %}
+            </div>
+        {% endfor %}
+        <div class="flex gap-2 pt-2">
+            <button type="submit" class="btn btn-primary">Guardar</button>
+            <a href="{% url 'televisor_list' %}" class="btn btn-ghost">Cancelar</a>
+        </div>
+    </form>
+</div>
+
+<script>
+    // Aplica el estilo .inp a los campos generados por Django.
+    document.querySelectorAll('form input:not([type=checkbox]):not([type=submit]), form select')
+        .forEach(el => el.classList.add('inp'));
+</script>
+{% endblock %}

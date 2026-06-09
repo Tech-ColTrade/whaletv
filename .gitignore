@@ -1,0 +1,25 @@
+# Entorno / secretos
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Django
+db.sqlite3
+db.sqlite3-*
+*.log
+staticfiles/
+
+# Selenium / artefactos
+portal_*.png
+diag*.png
+
+# IDE / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

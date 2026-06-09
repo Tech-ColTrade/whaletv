@@ -1,0 +1,97 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}Televisores · WhaleTV{% endblock %}
+{% block nav_tv %}navlink-active{% endblock %}
+{% block breadcrumb %}<span class="text-whale">Devices Management</span> / Televisores{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between gap-4 flex-wrap mb-5">
+    <h2 class="text-xl font-bold text-gray-800">Televisores</h2>
+    <div class="flex gap-2 items-center flex-wrap">
+        <form method="post" action="{% url 'sync_iniciar' %}" class="flex items-center gap-1.5"
+              onsubmit="return confirm('Esto APLICARÁ el estado de TODOS los televisores en el portal real de WhaleTV, en segundo plano. ¿Continuar?');">
+            {% csrf_token %}
+            <label class="text-xs text-gray-500">Workers</label>
+            <input type="number" name="workers" value="4" min="1" max="8"
+                   class="w-14 px-2 py-1.5 border border-gray-300 rounded-lg text-sm">
+            <button type="submit" class="btn btn-primary">⟳ Sincronizar todo</button>
+        </form>
+        <a href="{% url 'televisor_import' %}" class="btn btn-ghost">Importar compras</a>
+        <a href="{% url 'factura_import' %}" class="btn btn-ghost">Importar facturas</a>
+        <a href="{% url 'televisor_create' %}" class="btn btn-primary">+ Nuevo</a>
+    </div>
+</div>
+
+<form method="get" class="flex gap-2 mb-5 max-w-md">
+    <input type="text" name="q" value="{{ query }}" placeholder="Buscar MAC, serial, nombre..." class="inp">
+    <button type="submit" class="btn btn-ghost">Buscar</button>
+</form>
+
+{% if televisores %}
+<div class="card !p-0 overflow-hidden">
+    <table class="w-full">
+        <thead>
+            <tr>
+                <th class="th">Mac Address</th>
+                <th class="th">Serial Number</th>
+                <th class="th">Persona</th>
+                <th class="th">Correo</th>
+                <th class="th">Cuotas</th>
+                <th class="th">Lock</th>
+                <th class="th">Due</th>
+                <th class="th">Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tv in televisores %}
+            <tr class="hover:bg-gray-50">
+                <td class="td font-medium">{{ tv.mac_address }}</td>
+                <td class="td">{{ tv.serial_number }}</td>
+                <td class="td">{{ tv.nombre_persona }}</td>
+                <td class="td">{{ tv.correo_persona }}</td>
+                <td class="td">{{ tv.cuotas_pagadas }}/{{ tv.numero_cuotas }}</td>
+                <td class="td">
+                    {% if tv.lock_status %}
+                        <span class="pill pill-lock">Bloqueado</span>
+                    {% else %}
+                        <span class="pill pill-unlock">Desbloqueado</span>
+                    {% endif %}
+                </td>
+                <td class="td">
+                    {% if tv.due_status %}
+                        <span class="pill pill-due">Vencida</span>
+                    {% else %}
+                        <span class="pill pill-ok">Al día</span>
+                    {% endif %}
+                </td>
+                <td class="td whitespace-nowrap">
+                    <div class="flex gap-1.5 flex-wrap">
+                        <a href="{% url 'televisor_historico' tv.pk %}" class="btn btn-sm btn-ghost">Histórico</a>
+                        <form method="post" action="{% url 'televisor_validar' tv.pk %}">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-val">Validar</button>
+                        </form>
+                        <form method="post" action="{% url 'televisor_sincronizar' tv.pk %}"
+                              onsubmit="return confirm('Esto APLICARÁ el estado en el portal real de WhaleTV (cambia el TV). ¿Continuar?');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-primary">Sincronizar</button>
+                        </form>
+                        <a href="{% url 'televisor_update' tv.pk %}" class="btn btn-sm btn-edit">Editar</a>
+                        <a href="{% url 'televisor_delete' tv.pk %}" class="btn btn-sm btn-del">Eliminar</a>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card text-center text-gray-400 py-12">
+    {% if query %}
+        No se encontraron televisores para "{{ query }}".
+    {% else %}
+        Aún no hay televisores registrados. <a href="{% url 'televisor_create' %}" class="text-whale font-semibold">Crea el primero</a>.
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

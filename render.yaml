@@ -1,0 +1,31 @@
+# Blueprint de Render. Crea el servicio web (Docker, con Chromium para Selenium).
+# La base de datos PostgreSQL ya existe en Render; define DATABASE_URL con su
+# "Internal Database URL" en el dashboard (env var marcada sync:false).
+
+services:
+  - type: web
+    name: whaletv
+    runtime: docker
+    plan: starter            # 'starter' o superior; el free puede quedar corto con Chromium
+    region: oregon
+    healthCheckPath: /login/
+    preDeployCommand: python manage.py migrate --noinput
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "false"
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: TIME_ZONE
+        value: America/Bogota
+      # Base de datos (pega la Internal Database URL de tu Postgres de Render)
+      - key: DATABASE_URL
+        sync: false
+      # Credenciales del portal WhaleTV (no se versionan)
+      - key: WHALETV_PORTAL_EMAIL
+        sync: false
+      - key: WHALETV_PORTAL_PASSWORD
+        sync: false
+      - key: WHALETV_PORTAL_HEADLESS
+        value: "true"

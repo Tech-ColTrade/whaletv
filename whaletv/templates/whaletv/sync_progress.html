@@ -1,0 +1,140 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}Sincronización · WhaleTV{% endblock %}
+{% block nav_tv %}navlink-active{% endblock %}
+{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / Sincronización masiva{% endblock %}
+
+{% block content %}
+<div class="min-h-[72vh] flex items-center justify-center">
+  <div class="w-full max-w-2xl" data-job="{{ job.pk }}" data-url="{% url 'sync_progreso_api' job.pk %}">
+
+    <!-- Tarjeta principal -->
+    <div class="relative overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-gray-100">
+      <!-- Banda superior con gradiente -->
+      <div class="h-2 bg-gradient-to-r from-whale-light via-whale to-whale-dark"></div>
+
+      <div class="p-8 sm:p-10">
+        <!-- Encabezado -->
+        <div class="flex items-center justify-between mb-8">
+          <div>
+            <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Sincronización masiva</h2>
+            <p class="text-sm text-gray-400 mt-0.5">{{ job.workers }} navegador(es) en paralelo · puedes dejar esta página abierta</p>
+          </div>
+          <span id="estado" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+            <span id="dot" class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+            <span id="estado-txt">…</span>
+          </span>
+        </div>
+
+        <!-- Anillo de progreso -->
+        <div class="flex flex-col items-center justify-center">
+          <div class="relative" style="width:220px;height:220px;">
+            <svg class="-rotate-90" width="220" height="220" viewBox="0 0 220 220">
+              <circle cx="110" cy="110" r="92" fill="none" stroke="#f1f1f4" stroke-width="16"/>
+              <circle id="ring" cx="110" cy="110" r="92" fill="none" stroke="url(#grad)" stroke-width="16"
+                      stroke-linecap="round" stroke-dasharray="578.05" stroke-dashoffset="578.05"
+                      style="transition: stroke-dashoffset .6s ease;"/>
+              <defs>
+                <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="#ff4f93"/>
+                  <stop offset="100%" stop-color="#d10f57"/>
+                </linearGradient>
+              </defs>
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center">
+              <div id="pct" class="text-4xl font-extrabold text-gray-800">0%</div>
+              <div id="frac" class="text-xs text-gray-400 mt-1 font-medium">0 / {{ job.total }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="grid grid-cols-3 gap-3 mt-8">
+          <div class="rounded-2xl p-4 text-center bg-green-50 ring-1 ring-green-100">
+            <div id="c-apl" class="text-3xl font-extrabold text-green-600">0</div>
+            <div class="text-[0.7rem] uppercase tracking-wide text-green-700/70 font-semibold mt-1">Aplicados</div>
+          </div>
+          <div class="rounded-2xl p-4 text-center bg-sky-50 ring-1 ring-sky-100">
+            <div id="c-sin" class="text-3xl font-extrabold text-sky-600">0</div>
+            <div class="text-[0.7rem] uppercase tracking-wide text-sky-700/70 font-semibold mt-1">Sin cambios</div>
+          </div>
+          <div class="rounded-2xl p-4 text-center bg-red-50 ring-1 ring-red-100">
+            <div id="c-err" class="text-3xl font-extrabold text-red-600">0</div>
+            <div class="text-[0.7rem] uppercase tracking-wide text-red-700/70 font-semibold mt-1">Con error</div>
+          </div>
+        </div>
+
+        <!-- Mensaje final -->
+        <div id="final" class="hidden mt-6 text-center text-sm font-semibold"></div>
+
+        <!-- Errores -->
+        <div id="errores-wrap" class="mt-6 hidden">
+          <h3 class="text-sm font-bold text-red-700 mb-2">Televisores con error</h3>
+          <div id="errores" class="text-sm text-gray-600 max-h-64 overflow-auto rounded-xl bg-red-50/50 ring-1 ring-red-100 divide-y divide-red-100"></div>
+        </div>
+
+        <div class="mt-8 flex justify-center">
+          <a href="{% url 'televisor_list' %}" class="btn btn-ghost">← Volver a televisores</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const card = document.querySelector('[data-job]');
+  const url = card.dataset.url;
+  const $ = id => document.getElementById(id);
+  const CIRC = 578.05;
+
+  const estilos = {
+    pendiente: ['bg-amber-100 text-amber-700', 'bg-amber-500', 'En cola', true],
+    corriendo: ['bg-amber-100 text-amber-700', 'bg-amber-500', 'Sincronizando…', true],
+    terminado: ['bg-green-100 text-green-700', 'bg-green-500', 'Completado', false],
+    error:     ['bg-red-100 text-red-700', 'bg-red-500', 'Terminado con errores', false],
+  };
+
+  async function tick() {
+    let d;
+    try { d = await (await fetch(url)).json(); }
+    catch (e) { setTimeout(tick, 2500); return; }
+
+    $('ring').style.strokeDashoffset = CIRC * (1 - d.porcentaje / 100);
+    $('pct').textContent = d.porcentaje + '%';
+    $('frac').textContent = d.procesados + ' / ' + d.total;
+
+    $('c-apl').textContent = d.aplicados;
+    $('c-sin').textContent = d.sin_cambios;
+    $('c-err').textContent = d.error;
+
+    const [cls, dotCls, txt, pulse] = estilos[d.estado] || estilos.corriendo;
+    $('estado').className = 'inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold ' + cls;
+    $('dot').className = 'w-2 h-2 rounded-full ' + dotCls + (pulse ? ' animate-pulse' : '');
+    $('estado-txt').textContent = txt;
+
+    if (d.errores && d.errores.length) {
+      $('errores-wrap').classList.remove('hidden');
+      $('errores').innerHTML = d.errores
+        .map(e => '<div class="px-3 py-2"><b class="text-red-700">' + e.mac + '</b> <span class="text-gray-500">' + e.mensaje + '</span></div>')
+        .join('');
+    }
+
+    if (d.terminado) {
+      const f = $('final');
+      f.classList.remove('hidden');
+      if (d.error > 0) {
+        f.className = 'mt-6 text-center text-sm font-semibold text-amber-600';
+        f.textContent = '✓ Listo: ' + d.aplicados + ' aplicados, ' + d.sin_cambios + ' sin cambios, ' + d.error + ' con error.';
+      } else {
+        f.className = 'mt-6 text-center text-sm font-semibold text-green-600';
+        f.textContent = '✓ ¡Sincronización completada con éxito!';
+      }
+    } else {
+      setTimeout(tick, 2000);
+    }
+  }
+  tick();
+})();
+</script>
+{% endblock %}

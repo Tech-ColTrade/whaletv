@@ -1,0 +1,15 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}Inicio · WhaleTV{% endblock %}
+{% block breadcrumb %}<span class="text-whale">Inicio</span>{% endblock %}
+
+{% block content %}
+<div class="card max-w-2xl">
+    <h2 class="text-2xl font-bold text-gray-800 mb-1">¡Hola, {{ user.nombre }}! 👋</h2>
+    <p class="text-gray-600">Has iniciado sesión correctamente.</p>
+    <span class="pill pill-ok mt-3">{{ user.email }}</span>
+    <div class="mt-6">
+        <a href="{% url 'televisor_list' %}" class="btn btn-primary">Gestionar televisores →</a>
+    </div>
+</div>
+{% endblock %}

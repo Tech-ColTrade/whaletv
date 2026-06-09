@@ -1,0 +1,48 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}Importar compras · WhaleTV{% endblock %}
+{% block nav_tv %}navlink-active{% endblock %}
+{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / Importar compras{% endblock %}
+
+{% block content %}
+{% if resultado %}
+<div class="card mb-5 max-w-2xl">
+    <h2 class="text-lg font-bold text-gray-800 mb-3">Resultado de la importación</h2>
+    <div class="flex gap-3 mb-3">
+        <span class="px-3 py-2 rounded-lg font-bold bg-green-100 text-green-700">Creados: {{ resultado.creados }}</span>
+        <span class="px-3 py-2 rounded-lg font-bold bg-sky-100 text-sky-700">Actualizados: {{ resultado.actualizados }}</span>
+        {% if resultado.errores %}<span class="px-3 py-2 rounded-lg font-bold bg-red-100 text-red-700">Con error: {{ resultado.errores|length }}</span>{% endif %}
+    </div>
+    {% if resultado.errores %}
+    <div class="text-sm text-red-700 max-h-56 overflow-auto divide-y divide-red-100">
+        {% for e in resultado.errores %}<div class="py-1">{{ e }}</div>{% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="card max-w-2xl">
+    <h2 class="text-xl font-bold text-gray-800 mb-2">Importar compras (televisores)</h2>
+    <p class="text-sm text-gray-600 mb-4">Sube un archivo <b>Excel (.xlsx)</b> (también acepta CSV). Si el televisor ya existe
+       (mismo <b>MAC</b>) se <b>actualiza</b>; si no, se <b>crea</b>. Las facturas se importan aparte.</p>
+
+    <table class="w-full text-sm border border-gray-200 mb-4">
+        <tr class="bg-gray-50"><th class="border border-gray-200 px-3 py-2 text-left">Columna</th><th class="border border-gray-200 px-3 py-2 text-left">Ejemplo</th><th class="border border-gray-200 px-3 py-2 text-left">Obligatoria</th></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">mac_address</td><td class="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:AA</td><td class="border border-gray-200 px-3 py-2">Sí (identifica la compra)</td></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">serial_number</td><td class="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:AA</td><td class="border border-gray-200 px-3 py-2">No</td></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">nombre_persona</td><td class="border border-gray-200 px-3 py-2">Juan Pérez</td><td class="border border-gray-200 px-3 py-2">No</td></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">correo_persona</td><td class="border border-gray-200 px-3 py-2">juan@correo.com</td><td class="border border-gray-200 px-3 py-2">No</td></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">numero_cuotas</td><td class="border border-gray-200 px-3 py-2">10</td><td class="border border-gray-200 px-3 py-2">No (por defecto: 0)</td></tr>
+    </table>
+
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+        {% csrf_token %}
+        <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required class="block text-sm">
+        <div class="flex gap-2">
+            <button type="submit" class="btn btn-primary">Importar</button>
+            <a href="{% url 'televisor_plantilla' %}" class="btn btn-ghost">Descargar plantilla Excel</a>
+            <a href="{% url 'televisor_list' %}" class="btn btn-ghost">Volver</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

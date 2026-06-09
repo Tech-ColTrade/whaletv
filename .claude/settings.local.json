@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python manage.py shell -c \"exec\\(open\\('_smoke.py', encoding='utf-8'\\).read\\(\\)\\)\")"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python manage.py shell -c \"exec\\(open\\('_explore_edit.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "PowerShell(python manage.py shell -c \"exec\\(open\\('_test_real.py', encoding='utf-8'\\).read\\(\\)\\)\")"
+    ]
+  }
+}
