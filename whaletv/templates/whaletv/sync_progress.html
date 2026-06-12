@@ -73,8 +73,13 @@
           <div id="errores" class="text-sm text-gray-600 max-h-64 overflow-auto rounded-xl bg-red-50/50 ring-1 ring-red-100 divide-y divide-red-100"></div>
         </div>
 
-        <div class="mt-8 flex justify-center">
+        <div class="mt-8 flex justify-center gap-2">
           <a href="{% url 'televisor_list' %}" class="btn btn-ghost">← Volver a televisores</a>
+          <form id="cancelar-form" method="post" action="{% url 'sync_cancelar_job' job.pk %}"
+                onsubmit="return confirm('¿Cancelar esta sincronización? Podrás lanzar una nueva.');">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-del">Cancelar sincronización</button>
+          </form>
         </div>
       </div>
     </div>
@@ -93,6 +98,7 @@
     corriendo: ['bg-amber-100 text-amber-700', 'bg-amber-500', 'Sincronizando…', true],
     terminado: ['bg-green-100 text-green-700', 'bg-green-500', 'Completado', false],
     error:     ['bg-red-100 text-red-700', 'bg-red-500', 'Terminado con errores', false],
+    cancelado: ['bg-gray-200 text-gray-600', 'bg-gray-500', 'Cancelado', false],
   };
 
   async function tick() {
@@ -121,9 +127,14 @@
     }
 
     if (d.terminado) {
+      const cancelarForm = document.getElementById('cancelar-form');
+      if (cancelarForm) cancelarForm.classList.add('hidden');
       const f = $('final');
       f.classList.remove('hidden');
-      if (d.error > 0) {
+      if (d.estado === 'cancelado') {
+        f.className = 'mt-6 text-center text-sm font-semibold text-gray-500';
+        f.textContent = '✕ Sincronización cancelada.';
+      } else if (d.error > 0) {
         f.className = 'mt-6 text-center text-sm font-semibold text-amber-600';
         f.textContent = '✓ Listo: ' + d.aplicados + ' aplicados, ' + d.sin_cambios + ' sin cambios, ' + d.error + ' con error.';
       } else {

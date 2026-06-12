@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(python manage.py shell -c \"exec\\(open\\('_smoke.py', encoding='utf-8'\\).read\\(\\)\\)\")"
+      "PowerShell(python manage.py shell -c \"exec\\(open\\('_smoke.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "PowerShell(python manage.py makemigrations whaletv)",
+      "PowerShell(python manage.py shell -c \"from whaletv.models import SyncJob; from django.utils import timezone; n=SyncJob.objects.filter\\(estado__in=SyncJob.ACTIVOS\\).update\\(estado='cancelado', terminado=timezone.now\\(\\), error='Cancelado \\(limpieza manual\\).'\\); print\\(f'Jobs cancelados: {n}'\\)\")"
     ]
   }
 }

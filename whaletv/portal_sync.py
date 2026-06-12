@@ -41,12 +41,20 @@ def _build_driver(headless):
     options = Options()
     if headless:
         options.add_argument('--headless=new')
-    options.add_argument('--window-size=1400,900')
+    options.add_argument('--window-size=1280,800')
     options.add_argument('--disable-blink-features=AutomationControlled')
     # Flags necesarios en contenedores (Docker/Render): sin sandbox ni /dev/shm.
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
+    # Flags para reducir el consumo de memoria (clave en planes con poca RAM).
+    options.add_argument('--disable-extensions')
+    options.add_argument('--disable-application-cache')
+    options.add_argument('--disable-software-rasterizer')
+    options.add_argument('--disable-background-networking')
+    options.add_argument('--no-first-run')
+    options.add_argument('--mute-audio')
+    options.add_argument('--blink-settings=imagesEnabled=false')  # no carga imágenes
     options.add_experimental_option('excludeSwitches', ['enable-automation'])
 
     # En servidor/Docker se define el binario de Chromium y el driver por env.
@@ -444,11 +452,16 @@ def ejecutar_job(job_id, workers=4, sincronizar_fecha=True):
     from django.db import connections
     from django.utils import timezone
 
-    from .models import SyncJob, SyncJobItem, Televisor
+    from .models import RegistroSync, SyncJob, SyncJobItem, Televisor
 
     cfg = settings.WHALETV_PORTAL
 
     SyncJob.objects.filter(pk=job_id).update(estado='corriendo')
+
+    # Quién lanzó la sincronización (para la bitácora de cada televisor).
+    job = SyncJob.objects.filter(pk=job_id).values('usuario_id', 'usuario_email').first()
+    job_usuario_id = job['usuario_id'] if job else None
+    job_usuario_email = (job['usuario_email'] if job else '') or ''
 
     pendientes = list(
         SyncJobItem.objects.filter(job_id=job_id, estado='pendiente')
@@ -468,6 +481,11 @@ def ejecutar_job(job_id, workers=4, sincronizar_fecha=True):
             _login(driver, wait, cfg, ResultadoSync())
 
             while True:
+                # Si el usuario canceló el job, dejamos de tomar trabajo.
+                if SyncJob.objects.filter(
+                    pk=job_id, estado='cancelado'
+                ).exists():
+                    break
                 try:
                     item_pk, tv_id = cola.get_nowait()
                 except queue.Empty:
@@ -488,6 +506,17 @@ def ejecutar_job(job_id, workers=4, sincronizar_fecha=True):
                     SyncJobItem.objects.filter(pk=item_pk).update(
                         estado=estado, aplicado=res.aplicado, mensaje=mensaje[:500],
                     )
+                    if res.ok:
+                        RegistroSync.objects.create(
+                            usuario_id=job_usuario_id,
+                            usuario_email=job_usuario_email,
+                            televisor=tv,
+                            nombre_persona=tv.nombre_persona,
+                            mac_address=tv.mac_address,
+                            lock_status=bool(tv.lock_status),
+                            aplicado=res.aplicado,
+                            tipo='masivo',
+                        )
                 except Exception as e:  # noqa: BLE001
                     SyncJobItem.objects.filter(pk=item_pk).update(
                         estado='error', mensaje=f'{type(e).__name__}: {e}'[:500],
@@ -507,6 +536,14 @@ def ejecutar_job(job_id, workers=4, sincronizar_fecha=True):
         h.start()
     for h in hilos:
         h.join()
+
+    # Si lo cancelaron, no tocamos el estado ni marcamos como error lo pendiente.
+    if SyncJob.objects.filter(pk=job_id, estado='cancelado').exists():
+        SyncJobItem.objects.filter(job_id=job_id, estado='pendiente').update(
+            mensaje='Cancelado antes de procesarse.',
+        )
+        connections.close_all()
+        return
 
     # Cualquier item que quedó pendiente (p. ej. si todos los logins fallaron).
     SyncJobItem.objects.filter(job_id=job_id, estado='pendiente').update(

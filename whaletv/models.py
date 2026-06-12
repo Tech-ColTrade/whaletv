@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -130,8 +131,22 @@ class SyncJob(models.Model):
         ('corriendo', 'Corriendo'),
         ('terminado', 'Terminado'),
         ('error', 'Error'),
+        ('cancelado', 'Cancelado'),
     ]
+    # Estados que cuentan como "todavía trabajando" (bloquean lanzar otro job).
+    ACTIVOS = ('pendiente', 'corriendo')
     estado = models.CharField(max_length=12, choices=ESTADOS, default='pendiente')
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='sync_jobs',
+        verbose_name='usuario',
+    )
+    usuario_email = models.CharField(
+        'Correo de quien sincronizó', max_length=254, blank=True, default=''
+    )
     total = models.PositiveIntegerField(default=0)
     workers = models.PositiveIntegerField(default=4)
     error = models.TextField(blank=True, default='')
@@ -167,3 +182,56 @@ class SyncJobItem(models.Model):
 
     def __str__(self):
         return f'{self.mac} ({self.estado})'
+
+
+class RegistroSync(models.Model):
+    """Bitácora: quién sincronizó qué televisor (nombre + MAC) y cuándo."""
+
+    TIPOS = [('individual', 'Individual'), ('masivo', 'Masivo')]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='registros_sync',
+        verbose_name='quién sincronizó',
+    )
+    # Copias planas por si luego borran el usuario o el televisor.
+    usuario_email = models.CharField('Correo', max_length=254, blank=True, default='')
+    televisor = models.ForeignKey(
+        Televisor,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='registros_sync',
+        verbose_name='televisor',
+    )
+    nombre_persona = models.CharField('Nombre persona', max_length=150, blank=True, default='')
+    mac_address = models.CharField('Mac Address', max_length=50)
+    lock_status = models.BooleanField('Quedó bloqueado', default=False)
+    aplicado = models.BooleanField('Aplicó cambio en el portal', default=False)
+    tipo = models.CharField(max_length=12, choices=TIPOS, default='individual')
+    creado = models.DateTimeField('Fecha', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'registro de sincronización'
+        verbose_name_plural = 'registros de sincronización'
+        ordering = ['-creado']
+
+    def __str__(self):
+        return f'{self.usuario_email} → {self.mac_address} ({self.creado:%d/%m/%Y %H:%M})'
+
+    @classmethod
+    def registrar(cls, usuario, televisor, *, aplicado, tipo):
+        """Crea un registro tomando una foto del usuario y del televisor."""
+        return cls.objects.create(
+            usuario=usuario if getattr(usuario, 'pk', None) else None,
+            usuario_email=getattr(usuario, 'email', '') or '',
+            televisor=televisor,
+            nombre_persona=televisor.nombre_persona,
+            mac_address=televisor.mac_address,
+            lock_status=bool(televisor.lock_status),
+            aplicado=bool(aplicado),
+            tipo=tipo,
+        )

@@ -1,4 +1,5 @@
 import datetime
+import os
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -8,7 +9,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import FacturaForm, TelevisorForm
-from .models import Factura, SyncJob, SyncJobItem, Televisor
+from .models import Factura, RegistroSync, SyncJob, SyncJobItem, Televisor
 
 
 def login_view(request):
@@ -156,6 +157,12 @@ def televisor_sincronizar(request, pk):
 
     resultado = sincronizar_televisor(televisor, dry_run=False)
 
+    if resultado.ok:
+        RegistroSync.registrar(
+            request.user, televisor,
+            aplicado=resultado.aplicado, tipo='individual',
+        )
+
     def estado(b):
         if b is None:
             return '¿?'
@@ -221,6 +228,12 @@ def televisor_sincronizar_todos(request):
 
     resultados = sincronizar_todos(televisores, dry_run=False)
 
+    for tv, r in resultados:
+        if r.ok:
+            RegistroSync.registrar(
+                request.user, tv, aplicado=r.aplicado, tipo='masivo',
+            )
+
     aplicados = sum(1 for _, r in resultados if r.ok and r.aplicado)
     sin_cambios = sum(1 for _, r in resultados if r.ok and not r.aplicado)
     fallidos = [(tv, r) for tv, r in resultados if not r.ok]
@@ -248,14 +261,32 @@ def sync_iniciar(request):
     if request.method != 'POST':
         return redirect('televisor_list')
 
+    import datetime
     import threading
+
+    from django.utils import timezone
 
     from .portal_sync import ejecutar_job
 
-    # Si ya hay una corriendo, vamos a su progreso en vez de duplicar.
-    activo = SyncJob.objects.filter(estado__in=['pendiente', 'corriendo']).first()
+    # Auto-recupera jobs "colgados": si quedó activo pero sin actividad por
+    # varios minutos (server reiniciado / hilo muerto), lo damos por cancelado
+    # para no bloquear nuevas sincronizaciones.
+    limite = timezone.now() - datetime.timedelta(minutes=10)
+    SyncJob.objects.filter(
+        estado__in=SyncJob.ACTIVOS, actualizado__lt=limite
+    ).update(
+        estado='cancelado',
+        terminado=timezone.now(),
+        error='Cancelado automáticamente (sin actividad).',
+    )
+
+    # Si ya hay una realmente en curso, vamos a su progreso en vez de duplicar.
+    activo = SyncJob.objects.filter(estado__in=SyncJob.ACTIVOS).first()
     if activo:
-        messages.info(request, 'Ya hay una sincronización en curso.')
+        messages.info(
+            request,
+            'Ya hay una sincronización en curso. Puedes cancelarla aquí si se quedó pegada.',
+        )
         return redirect('sync_progreso', pk=activo.pk)
 
     Televisor.refrescar_todos()
@@ -264,13 +295,20 @@ def sync_iniciar(request):
         messages.warning(request, 'No hay televisores para sincronizar.')
         return redirect('televisor_list')
 
+    # Tope de workers (en servidores con poca RAM conviene 1-2 para no agotar memoria).
+    tope = int(os.environ.get('SYNC_MAX_WORKERS', '8'))
     workers = request.POST.get('workers')
     try:
-        workers = max(1, min(int(workers), 8))
+        workers = max(1, min(int(workers), tope))
     except (TypeError, ValueError):
-        workers = 4
+        workers = min(4, tope)
 
-    job = SyncJob.objects.create(total=len(televisores), workers=workers)
+    job = SyncJob.objects.create(
+        total=len(televisores),
+        workers=workers,
+        usuario=request.user,
+        usuario_email=getattr(request.user, 'email', '') or '',
+    )
     SyncJobItem.objects.bulk_create([
         SyncJobItem(job=job, televisor=tv, mac=tv.mac_address) for tv in televisores
     ])
@@ -281,6 +319,37 @@ def sync_iniciar(request):
     hilo.start()
 
     return redirect('sync_progreso', pk=job.pk)
+
+
+@login_required
+def sync_cancelar(request, pk=None):
+    """Cancela una sincronización (o todas las que estén activas)."""
+    if request.method != 'POST':
+        return redirect('televisor_list')
+
+    from django.utils import timezone
+
+    activos = SyncJob.objects.filter(estado__in=SyncJob.ACTIVOS)
+    if pk:
+        activos = activos.filter(pk=pk)
+
+    n = activos.update(
+        estado='cancelado',
+        terminado=timezone.now(),
+        error='Cancelado por el usuario.',
+    )
+
+    if n:
+        messages.success(
+            request,
+            'Sincronización cancelada. Ya puedes lanzar una nueva.'
+            if n == 1 else
+            f'{n} sincronizaciones canceladas. Ya puedes lanzar una nueva.',
+        )
+    else:
+        messages.info(request, 'No había ninguna sincronización en curso.')
+
+    return redirect('televisor_list')
 
 
 @login_required
@@ -317,8 +386,28 @@ def sync_progreso_api(request, pk):
         'aplicados': aplicados,
         'sin_cambios': sin_cambios,
         'porcentaje': pct,
-        'terminado': job.estado in ('terminado', 'error'),
+        'terminado': job.estado in ('terminado', 'error', 'cancelado'),
         'errores': errores,
+    })
+
+
+@login_required
+def registro_sync_list(request):
+    """Bitácora: quién sincronizó cada televisor (nombre + MAC) y cuándo."""
+    query = request.GET.get('q', '').strip()
+    registros = RegistroSync.objects.select_related('usuario', 'televisor')
+
+    if query:
+        registros = registros.filter(
+            Q(mac_address__icontains=query)
+            | Q(nombre_persona__icontains=query)
+            | Q(usuario_email__icontains=query)
+        )
+
+    return render(request, 'whaletv/registro_sync_list.html', {
+        'registros': registros[:500],
+        'query': query,
+        'total': registros.count(),
     })
 
 

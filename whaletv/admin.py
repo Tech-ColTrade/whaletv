@@ -1,12 +1,23 @@
 from django.contrib import admin
 
-from .models import Factura, SyncJob, SyncJobItem, Televisor
+from .models import Factura, RegistroSync, SyncJob, SyncJobItem, Televisor
 
 
 @admin.register(SyncJob)
 class SyncJobAdmin(admin.ModelAdmin):
-    list_display = ('id', 'estado', 'total', 'workers', 'creado', 'terminado')
+    list_display = ('id', 'estado', 'usuario_email', 'total', 'workers', 'creado', 'terminado')
     list_filter = ('estado',)
+    ordering = ('-creado',)
+
+
+@admin.register(RegistroSync)
+class RegistroSyncAdmin(admin.ModelAdmin):
+    list_display = (
+        'creado', 'usuario_email', 'nombre_persona', 'mac_address',
+        'lock_status', 'aplicado', 'tipo',
+    )
+    list_filter = ('tipo', 'lock_status', 'aplicado')
+    search_fields = ('mac_address', 'nombre_persona', 'usuario_email')
     ordering = ('-creado',)
 
 
