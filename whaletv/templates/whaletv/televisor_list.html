@@ -1,6 +1,6 @@
 {% extends 'whaletv/base.html' %}
 
-{% block title %}Televisores · WhaleTV{% endblock %}
+{% block title %}Televisores · Locking System{% endblock %}
 {% block nav_tv %}navlink-active{% endblock %}
 {% block breadcrumb %}<span class="text-whale">Devices Management</span> / Televisores{% endblock %}
 
@@ -8,12 +8,9 @@
 <div class="flex items-center justify-between gap-4 flex-wrap mb-5">
     <h2 class="text-xl font-bold text-gray-800">Televisores</h2>
     <div class="flex gap-2 items-center flex-wrap">
-        <form method="post" action="{% url 'sync_iniciar' %}" class="flex items-center gap-1.5"
-              onsubmit="return confirm('Esto APLICARÁ el estado de TODOS los televisores en el portal real de WhaleTV, en segundo plano. ¿Continuar?');">
+        <form method="post" action="{% url 'sync_iniciar' %}"
+              onsubmit="return confirm('Esto APLICARÁ el estado de TODOS los televisores en el portal real de Locking System, en segundo plano. ¿Continuar?');">
             {% csrf_token %}
-            <label class="text-xs text-gray-500">Workers</label>
-            <input type="number" name="workers" value="4" min="1" max="8"
-                   class="w-14 px-2 py-1.5 border border-gray-300 rounded-lg text-sm">
             <button type="submit" class="btn btn-primary">⟳ Sincronizar todo</button>
         </form>
         <a href="{% url 'televisor_import' %}" class="btn btn-ghost">Importar compras</a>
@@ -28,36 +25,30 @@
 </form>
 
 {% if televisores %}
-<div class="card !p-0 overflow-hidden">
+<div class="card !p-0 overflow-x-auto">
     <table class="w-full">
         <thead>
             <tr>
-                <th class="th">Mac Address</th>
-                <th class="th">Serial Number</th>
-                <th class="th">Persona</th>
-                <th class="th">Correo</th>
-                <th class="th">Cuotas</th>
-                <th class="th">Lock</th>
-                <th class="th">Due</th>
-                <th class="th">Acciones</th>
+                <th class="th !text-center">Mac Address</th>
+                <th class="th !text-center">Lock</th>
+                <th class="th !text-center">Due</th>
+                <th class="th !text-center">Acciones</th>
             </tr>
         </thead>
         <tbody>
             {% for tv in televisores %}
             <tr class="hover:bg-gray-50">
-                <td class="td font-medium">{{ tv.mac_address }}</td>
-                <td class="td">{{ tv.serial_number }}</td>
-                <td class="td">{{ tv.nombre_persona }}</td>
-                <td class="td">{{ tv.correo_persona }}</td>
-                <td class="td">{{ tv.cuotas_pagadas }}/{{ tv.numero_cuotas }}</td>
-                <td class="td">
+                <td class="td font-medium text-center">
+                    <a href="{% url 'registro_sync_tv' tv.mac_address %}" class="text-whale hover:underline">{{ tv.mac_address }}</a>
+                </td>
+                <td class="td text-center">
                     {% if tv.lock_status %}
                         <span class="pill pill-lock">Bloqueado</span>
                     {% else %}
                         <span class="pill pill-unlock">Desbloqueado</span>
                     {% endif %}
                 </td>
-                <td class="td">
+                <td class="td text-center">
                     {% if tv.due_status %}
                         <span class="pill pill-due">Vencida</span>
                     {% else %}
@@ -65,17 +56,7 @@
                     {% endif %}
                 </td>
                 <td class="td whitespace-nowrap">
-                    <div class="flex gap-1.5 flex-wrap">
-                        <a href="{% url 'televisor_historico' tv.pk %}" class="btn btn-sm btn-ghost">Histórico</a>
-                        <form method="post" action="{% url 'televisor_validar' tv.pk %}">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-val">Validar</button>
-                        </form>
-                        <form method="post" action="{% url 'televisor_sincronizar' tv.pk %}"
-                              onsubmit="return confirm('Esto APLICARÁ el estado en el portal real de WhaleTV (cambia el TV). ¿Continuar?');">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-primary">Sincronizar</button>
-                        </form>
+                    <div class="flex items-center justify-center gap-1.5">
                         <a href="{% url 'televisor_update' tv.pk %}" class="btn btn-sm btn-edit">Editar</a>
                         <a href="{% url 'televisor_delete' tv.pk %}" class="btn btn-sm btn-del">Eliminar</a>
                     </div>

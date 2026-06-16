@@ -1,0 +1,227 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}Detalle · {{ mac }} · Locking System{% endblock %}
+{% block nav_tv %}navlink-active{% endblock %}
+{% block breadcrumb %}
+    <a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / {{ mac }}
+{% endblock %}
+
+{% block content %}
+<div class="card mb-5">
+    <div class="flex items-start justify-between flex-wrap gap-3 mb-5">
+        <h2 class="text-xl font-bold text-gray-800">{{ mac }}</h2>
+        <div class="flex gap-2 flex-wrap">
+            {% if televisor %}
+            <form method="post" action="{% url 'televisor_sincronizar' televisor.pk %}"
+                  onsubmit="return confirm('Esto APLICARÁ el estado en el portal real de Locking System (cambia el TV). ¿Continuar?');">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary">⟳ Sincronizar</button>
+            </form>
+            {% endif %}
+            <button type="button" class="btn btn-ghost" onclick="abrirPinModal()"><span class="grayscale">🔓</span> Desbloquear Manual</button>
+            <a href="{% url 'registro_sync_tv_records' mac %}" class="btn btn-ghost"><span class="grayscale">📋</span> Sincronizaciones ({{ total }})</a>
+            {% if televisor %}
+            <a href="{% url 'televisor_historico' televisor.pk %}" class="btn btn-ghost">Facturas</a>
+            {% endif %}
+            <a href="{% url 'registro_sync_tv_pincodes' mac %}" class="btn btn-ghost"><span class="grayscale">🔑</span> Pin Codes ({{ total_pincodes }})</a>
+            <a href="{% url 'televisor_list' %}" class="btn btn-ghost">← Volver</a>
+        </div>
+    </div>
+
+    {% if televisor %}
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+        <div>
+            <p class="lbl">Nombre</p>
+            <p class="font-medium text-gray-800">{{ televisor.nombre_persona }}</p>
+        </div>
+        <div>
+            <p class="lbl">Correo</p>
+            <p class="font-medium text-gray-800">{{ televisor.correo_persona }}</p>
+        </div>
+        <div>
+            <p class="lbl">Serial Number</p>
+            <p class="font-medium text-gray-800">{{ televisor.serial_number|default:"—" }}</p>
+        </div>
+        <div>
+            <p class="lbl">Cuotas pagadas</p>
+            <p class="font-medium text-gray-800">{{ televisor.cuotas_pagadas }} / {{ televisor.numero_cuotas }}</p>
+        </div>
+        <div>
+            <p class="lbl">Lock</p>
+            {% if televisor.lock_status %}
+                <span class="pill pill-lock">Bloqueado</span>
+            {% else %}
+                <span class="pill pill-unlock">Desbloqueado</span>
+            {% endif %}
+        </div>
+        <div>
+            <p class="lbl">Due</p>
+            {% if televisor.due_status %}
+                <span class="pill pill-due">Vencida</span>
+            {% else %}
+                <span class="pill pill-ok">Al día</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="mt-4 text-sm text-gray-400">{{ total }} sincronización{{ total|pluralize }}</div>
+</div>
+
+<!-- ░░ Modal: Desbloquear Manual / Generar Pin Code ░░ -->
+<div id="pin-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="cerrarPinModal()"></div>
+
+    <div class="relative w-full max-w-md rounded-2xl bg-white dark:bg-[#1d1d22] shadow-2xl ring-1 ring-gray-100 overflow-hidden">
+        <!-- Cabecera -->
+        <div class="bg-gradient-to-r from-whale to-whale-dark px-5 py-4 flex items-center gap-3">
+            <div class="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center text-lg">🔓</div>
+            <div class="text-white">
+                <h3 class="font-extrabold leading-tight">Desbloquear Manual</h3>
+                <p class="text-xs text-white/80">{{ mac }}</p>
+            </div>
+        </div>
+
+        <div class="p-5">
+            <!-- Paso 1: pedir Passcode -->
+            <div id="pin-step-form">
+                <p class="text-sm text-gray-600 mb-3">
+                    Ingresa el <b>Passcode</b>. Lo enviaremos al portal de Locking System para
+                    generar el <b>Pin Code</b> de esta MAC.
+                </p>
+                <label class="lbl">Passcode</label>
+                <input type="text" id="pin-passcode" class="inp" placeholder="Pega aquí el Passcode" autocomplete="off">
+                <p id="pin-error" class="hidden text-xs text-rose-600 mt-2"></p>
+                <div class="flex gap-2 mt-4">
+                    <button type="button" id="pin-continuar" class="btn btn-primary" onclick="generarPin()">Continuar</button>
+                    <button type="button" class="btn btn-ghost" onclick="cerrarPinModal()">Cancelar</button>
+                </div>
+            </div>
+
+            <!-- Paso 2: cargando -->
+            <div id="pin-step-loading" class="hidden text-center py-6">
+                <div class="mx-auto w-10 h-10 border-4 border-whale/30 border-t-whale rounded-full animate-spin"></div>
+                <p id="pin-loading-text" class="text-sm text-gray-600 mt-4">Generando el Pin Code en el portal…</p>
+                <p class="text-xs text-gray-400 mt-1">Esto puede tardar unos segundos, no cierres la ventana.</p>
+            </div>
+
+            <!-- Paso 3: resultado -->
+            <div id="pin-step-result" class="hidden text-center py-2">
+                <p class="text-sm text-gray-500 mb-2">Pin Code generado</p>
+                <div class="flex items-center justify-center gap-2">
+                    <code id="pin-value" class="text-3xl font-extrabold tracking-widest text-whale bg-whale/5 ring-1 ring-whale/20 rounded-xl px-5 py-3"></code>
+                </div>
+                <p id="pin-sync-error" class="hidden text-xs text-rose-600 mt-3"></p>
+                <div class="flex items-center justify-center gap-2 mt-4">
+                    <button type="button" class="btn btn-ghost" onclick="copiarPin()">📋 Copiar</button>
+                    <button type="button" class="btn btn-primary" onclick="sincronizarYListo()">
+                        ⟳ Listo y sincronizar
+                    </button>
+                </div>
+                <p class="text-[0.7rem] text-gray-400 mt-2">Al pulsar “Listo” se aplica el estado y la fecha de la factura en el portal.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const PIN_URL = "{% url 'desbloquear_manual' mac %}";
+    const SYNC_URL = "{% url 'desbloquear_sincronizar' mac %}";
+    const TIENE_TV = {% if televisor %}true{% else %}false{% endif %};
+    const CSRF = "{{ csrf_token }}";
+
+    function _mostrarPaso(paso) {
+        ['form', 'loading', 'result'].forEach(p =>
+            document.getElementById('pin-step-' + p).classList.toggle('hidden', p !== paso)
+        );
+    }
+
+    function abrirPinModal() {
+        document.getElementById('pin-passcode').value = '';
+        document.getElementById('pin-error').classList.add('hidden');
+        _mostrarPaso('form');
+        document.getElementById('pin-modal').classList.remove('hidden');
+        setTimeout(() => document.getElementById('pin-passcode').focus(), 50);
+    }
+
+    function cerrarPinModal() {
+        document.getElementById('pin-modal').classList.add('hidden');
+    }
+
+    async function generarPin() {
+        const passcode = document.getElementById('pin-passcode').value.trim();
+        const err = document.getElementById('pin-error');
+        if (!passcode) {
+            err.textContent = 'Debes ingresar el Passcode.';
+            err.classList.remove('hidden');
+            return;
+        }
+        document.getElementById('pin-loading-text').textContent = 'Generando el Pin Code en el portal…';
+        _mostrarPaso('loading');
+
+        try {
+            const resp = await fetch(PIN_URL, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': CSRF,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'passcode=' + encodeURIComponent(passcode),
+            });
+            const data = await resp.json();
+
+            if (data.ok && data.pin) {
+                document.getElementById('pin-value').textContent = data.pin;
+                _mostrarPaso('result');
+            } else {
+                err.textContent = data.error || 'No se pudo generar el Pin Code.';
+                err.classList.remove('hidden');
+                _mostrarPaso('form');
+            }
+        } catch (e) {
+            err.textContent = 'Error de conexión: ' + e;
+            err.classList.remove('hidden');
+            _mostrarPaso('form');
+        }
+    }
+
+    function copiarPin() {
+        const pin = document.getElementById('pin-value').textContent;
+        navigator.clipboard.writeText(pin);
+    }
+
+    async function sincronizarYListo() {
+        if (!TIENE_TV) { cerrarPinModal(); return; }
+
+        const err = document.getElementById('pin-sync-error');
+        err.classList.add('hidden');
+        document.getElementById('pin-loading-text').textContent =
+            'Sincronizando estado y fecha de la factura en el portal…';
+        _mostrarPaso('loading');
+
+        try {
+            const resp = await fetch(SYNC_URL, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': CSRF,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: '',
+            });
+            const data = await resp.json();
+
+            if (data.ok) {
+                window.location.href = data.redirect;
+            } else {
+                err.textContent = data.error || 'No se pudo sincronizar.';
+                err.classList.remove('hidden');
+                _mostrarPaso('result');
+            }
+        } catch (e) {
+            err.textContent = 'Error de conexión: ' + e;
+            err.classList.remove('hidden');
+            _mostrarPaso('result');
+        }
+    }
+</script>
+{% endblock %}

@@ -3,7 +3,9 @@
     "allow": [
       "PowerShell(python manage.py shell -c \"exec\\(open\\('_smoke.py', encoding='utf-8'\\).read\\(\\)\\)\")",
       "PowerShell(python manage.py makemigrations whaletv)",
-      "PowerShell(python manage.py shell -c \"from whaletv.models import SyncJob; from django.utils import timezone; n=SyncJob.objects.filter\\(estado__in=SyncJob.ACTIVOS\\).update\\(estado='cancelado', terminado=timezone.now\\(\\), error='Cancelado \\(limpieza manual\\).'\\); print\\(f'Jobs cancelados: {n}'\\)\")"
+      "PowerShell(python manage.py shell -c \"from whaletv.models import SyncJob; from django.utils import timezone; n=SyncJob.objects.filter\\(estado__in=SyncJob.ACTIVOS\\).update\\(estado='cancelado', terminado=timezone.now\\(\\), error='Cancelado \\(limpieza manual\\).'\\); print\\(f'Jobs cancelados: {n}'\\)\")",
+      "PowerShell(python manage.py shell -c \"from whaletv.models import Televisor; tv=Televisor.objects.filter\\(mac_address__iexact='B4:04:29:7E:3A:EE'\\).first\\(\\); print\\('TV:', tv, '| lock:', tv.lock_status\\); [print\\(f'  cuota={f.numero_cuota} venc={f.fecha_vencimiento} pagada={f.pagada} factura={f.numero_factura}'\\) for f in tv.facturas.all\\(\\).order_by\\('fecha_vencimiento'\\)]; print\\('fecha_sincronizar \\(la que va al portal\\):', tv.fecha_sincronizar\\)\")",
+      "PowerShell(python manage.py shell -c \"from whaletv.models import Televisor; tv=Televisor.objects.filter\\(mac_address__iexact='B4:04:29:7E:3A:EE'\\).first\\(\\); print\\('fecha_sincronizar ahora:', tv.fecha_sincronizar, '-> portal MM/DD/YYYY:', tv.fecha_sincronizar.strftime\\('%m/%d/%Y'\\) if tv.fecha_sincronizar else None\\)\")"
     ]
   }
 }

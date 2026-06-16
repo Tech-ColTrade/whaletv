@@ -1,0 +1,52 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}Pin Codes · {{ mac }} · Locking System{% endblock %}
+{% block nav_tv %}navlink-active{% endblock %}
+{% block breadcrumb %}
+    <a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> /
+    <a href="{% url 'registro_sync_tv' mac %}" class="text-whale">{{ mac }}</a> / Pin Codes
+{% endblock %}
+
+{% block content %}
+<div class="card mb-5">
+    <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+            <h2 class="text-xl font-bold text-gray-800">Pin Codes de {{ mac }}</h2>
+            <p class="text-sm text-gray-500">{{ total }} Pin Code{{ total|pluralize }} generado{{ total|pluralize }}.</p>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+            <a href="{% url 'registro_sync_tv_pincodes_export' mac %}" class="btn btn-ghost">⬇ Exportar Excel</a>
+            <a href="{% url 'registro_sync_tv' mac %}" class="btn btn-ghost">← Volver al detalle</a>
+        </div>
+    </div>
+</div>
+
+{% if pincodes %}
+<div class="card !p-0 overflow-x-auto">
+    <table class="w-full">
+        <thead>
+            <tr>
+                <th class="th">Fecha</th>
+                <th class="th">Passcode</th>
+                <th class="th">Pin Code</th>
+                <th class="th">Quién lo generó</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in pincodes %}
+            <tr class="hover:bg-gray-50">
+                <td class="td whitespace-nowrap">{{ p.creado|date:"d/m/Y H:i" }}</td>
+                <td class="td font-mono">{{ p.passcode }}</td>
+                <td class="td font-mono font-bold text-whale">{{ p.pin_code }}</td>
+                <td class="td">{{ p.usuario_email|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card text-center text-gray-400 py-12">
+    Este TV aún no tiene Pin Codes generados.
+</div>
+{% endif %}
+{% endblock %}

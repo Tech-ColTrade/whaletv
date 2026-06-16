@@ -2,7 +2,10 @@
 
 {% block title %}Histórico · {{ televisor.mac_address }}{% endblock %}
 {% block nav_tv %}navlink-active{% endblock %}
-{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / Histórico{% endblock %}
+{% block breadcrumb %}
+    <a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> /
+    <a href="{% url 'registro_sync_tv' televisor.mac_address %}" class="text-whale">{{ televisor.mac_address }}</a> / Facturas
+{% endblock %}
 
 {% block content %}
 <div class="card mb-5">
@@ -19,7 +22,7 @@
                 {% endif %}
             </div>
         </div>
-        <a href="{% url 'televisor_list' %}" class="btn btn-ghost">← Volver</a>
+        <a href="{% url 'registro_sync_tv' televisor.mac_address %}" class="btn btn-ghost">← Volver al detalle</a>
     </div>
 </div>
 

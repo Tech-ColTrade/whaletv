@@ -9,7 +9,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import FacturaForm, TelevisorForm
-from .models import Factura, RegistroSync, SyncJob, SyncJobItem, Televisor
+from .models import Factura, PinCodeGenerado, RegistroSync, SyncJob, SyncJobItem, Televisor
 
 
 def login_view(request):
@@ -295,13 +295,8 @@ def sync_iniciar(request):
         messages.warning(request, 'No hay televisores para sincronizar.')
         return redirect('televisor_list')
 
-    # Tope de workers (en servidores con poca RAM conviene 1-2 para no agotar memoria).
-    tope = int(os.environ.get('SYNC_MAX_WORKERS', '8'))
-    workers = request.POST.get('workers')
-    try:
-        workers = max(1, min(int(workers), tope))
-    except (TypeError, ValueError):
-        workers = min(4, tope)
+    # 1 TV → 1 navegador, 2 → 2, 3 → 3, 4 o más → siempre 4.
+    workers = max(1, min(len(televisores), 4))
 
     job = SyncJob.objects.create(
         total=len(televisores),
@@ -312,6 +307,69 @@ def sync_iniciar(request):
     SyncJobItem.objects.bulk_create([
         SyncJobItem(job=job, televisor=tv, mac=tv.mac_address) for tv in televisores
     ])
+
+    hilo = threading.Thread(
+        target=ejecutar_job, args=(job.pk, workers), daemon=True,
+    )
+    hilo.start()
+
+    return redirect('sync_progreso', pk=job.pk)
+
+
+@login_required
+def sync_cambios(request):
+    """Sincroniza SOLO los televisores que cambiaron de estado tras una importación.
+
+    Asigna 1 navegador por televisor, con un tope de 4 (1→1, 2→2, 3→3, 4+→4).
+    """
+    if request.method != 'POST':
+        return redirect('televisor_list')
+
+    import datetime
+    import threading
+
+    from django.utils import timezone
+
+    from .portal_sync import ejecutar_job
+
+    pks = request.session.get('sync_cambios_pks') or []
+    televisores = list(Televisor.objects.filter(pk__in=pks))
+    if not televisores:
+        messages.info(request, 'No hay cambios pendientes por sincronizar.')
+        return redirect('televisor_list')
+
+    # Auto-recupera jobs "colgados" (igual que en sync_iniciar).
+    limite = timezone.now() - datetime.timedelta(minutes=10)
+    SyncJob.objects.filter(
+        estado__in=SyncJob.ACTIVOS, actualizado__lt=limite
+    ).update(
+        estado='cancelado',
+        terminado=timezone.now(),
+        error='Cancelado automáticamente (sin actividad).',
+    )
+
+    activo = SyncJob.objects.filter(estado__in=SyncJob.ACTIVOS).first()
+    if activo:
+        messages.info(
+            request,
+            'Ya hay una sincronización en curso. Puedes cancelarla aquí si se quedó pegada.',
+        )
+        return redirect('sync_progreso', pk=activo.pk)
+
+    # 1 TV → 1 navegador, 2 → 2, 3 → 3, 4 o más → siempre 4.
+    workers = max(1, min(len(televisores), 4))
+
+    job = SyncJob.objects.create(
+        total=len(televisores),
+        workers=workers,
+        usuario=request.user,
+        usuario_email=getattr(request.user, 'email', '') or '',
+    )
+    SyncJobItem.objects.bulk_create([
+        SyncJobItem(job=job, televisor=tv, mac=tv.mac_address) for tv in televisores
+    ])
+
+    request.session.pop('sync_cambios_pks', None)
 
     hilo = threading.Thread(
         target=ejecutar_job, args=(job.pk, workers), daemon=True,
@@ -409,6 +467,249 @@ def registro_sync_list(request):
         'query': query,
         'total': registros.count(),
     })
+
+
+@login_required
+def pincode_list(request):
+    """Bitácora de Pin Codes generados (MAC + Passcode + Pin Code)."""
+    query = request.GET.get('q', '').strip()
+    registros = PinCodeGenerado.objects.select_related('usuario')
+
+    if query:
+        registros = registros.filter(
+            Q(mac_address__icontains=query)
+            | Q(pin_code__icontains=query)
+            | Q(passcode__icontains=query)
+            | Q(usuario_email__icontains=query)
+        )
+
+    return render(request, 'whaletv/pincode_list.html', {
+        'registros': registros[:500],
+        'query': query,
+        'total': registros.count(),
+    })
+
+
+@login_required
+def registro_sync_tv(request, mac):
+    """Detalle de un televisor (tarjeta de info). Las sincronizaciones y los
+    pin codes se ven en páginas aparte."""
+    televisor = Televisor.objects.filter(mac_address=mac).first()
+    return render(request, 'whaletv/registro_sync_tv.html', {
+        'mac': mac,
+        'televisor': televisor,
+        'total': RegistroSync.objects.filter(mac_address=mac).count(),
+        'total_pincodes': PinCodeGenerado.objects.filter(mac_address=mac).count(),
+    })
+
+
+@login_required
+def registro_sync_tv_records(request, mac):
+    """Página con la tabla de sincronizaciones de un televisor."""
+    registros = RegistroSync.objects.filter(mac_address=mac).select_related('usuario')
+    televisor = Televisor.objects.filter(mac_address=mac).first()
+    return render(request, 'whaletv/registro_sync_tv_records.html', {
+        'registros': registros,
+        'mac': mac,
+        'televisor': televisor,
+        'total': registros.count(),
+    })
+
+
+@login_required
+def registro_sync_tv_pincodes(request, mac):
+    """Página con la tabla de Pin Codes generados de un televisor."""
+    pincodes = PinCodeGenerado.objects.filter(mac_address=mac).select_related('usuario')
+    televisor = Televisor.objects.filter(mac_address=mac).first()
+    return render(request, 'whaletv/registro_sync_tv_pincodes.html', {
+        'pincodes': pincodes,
+        'mac': mac,
+        'televisor': televisor,
+        'total': pincodes.count(),
+    })
+
+
+@login_required
+def desbloquear_manual(request, mac):
+    """Genera un Pin Code en el portal de Locking System usando el Passcode dado.
+
+    Responde JSON (lo consume el modal de la página vía fetch).
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Método no permitido.'}, status=405)
+
+    passcode = (request.POST.get('passcode') or '').strip()
+    if not passcode:
+        return JsonResponse({'ok': False, 'error': 'Debes ingresar el Passcode.'}, status=400)
+
+    from .portal_sync import generar_pin_code
+
+    res, pin = generar_pin_code(mac, passcode)
+
+    if res.ok and pin:
+        PinCodeGenerado.objects.create(
+            usuario=request.user if getattr(request.user, 'pk', None) else None,
+            usuario_email=getattr(request.user, 'email', '') or '',
+            mac_address=mac,
+            passcode=passcode,
+            pin_code=pin,
+        )
+        return JsonResponse({'ok': True, 'pin': pin, 'mac': mac})
+
+    return JsonResponse({
+        'ok': False,
+        'error': res.error or 'No se pudo generar el Pin Code.',
+        'log': res.log[-6:],
+    })
+
+
+@login_required
+def desbloquear_sincronizar(request, mac):
+    """Sincroniza (modo real) el estado + fecha de la factura del TV con el portal.
+
+    Es lo mismo que el botón 'Sincronizar', pero invocado por AJAX desde el modal
+    de Desbloquear Manual al pulsar 'Listo'. Responde JSON.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'Método no permitido.'}, status=405)
+
+    televisor = Televisor.objects.filter(mac_address=mac).first()
+    if not televisor:
+        return JsonResponse({'ok': False, 'error': 'No existe un televisor con esa MAC.'}, status=404)
+
+    from django.urls import reverse
+
+    from .portal_sync import sincronizar_televisor
+
+    resultado = sincronizar_televisor(televisor, dry_run=False)
+
+    def estado(b):
+        if b is None:
+            return '¿?'
+        return 'Bloqueado' if b else 'Desbloqueado'
+
+    if resultado.ok:
+        RegistroSync.registrar(
+            request.user, televisor, aplicado=resultado.aplicado, tipo='individual',
+        )
+        if resultado.aplicado:
+            fecha = televisor.fecha_sincronizar
+            messages.success(
+                request,
+                f'[{televisor.mac_address}] SINCRONIZADO en el portal → '
+                f'quedó {estado(resultado.remoto_bloqueado)}'
+                + (f' · fecha {fecha:%d/%m/%Y}' if fecha else ''),
+            )
+        else:
+            messages.success(
+                request,
+                f'[{televisor.mac_address}] Ya estaba igual en el portal '
+                f'({estado(resultado.remoto_bloqueado)}), no se cambió nada.',
+            )
+        return JsonResponse({'ok': True, 'redirect': reverse('televisor_list')})
+
+    messages.error(
+        request,
+        f'[{televisor.mac_address}] Error sincronizando: {resultado.error}',
+    )
+    return JsonResponse({'ok': False, 'error': resultado.error or 'No se pudo sincronizar.'})
+
+
+@login_required
+def registro_sync_tv_export(request, mac):
+    """Exporta a Excel las sincronizaciones de un televisor (por MAC)."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    registros = RegistroSync.objects.filter(mac_address=mac).select_related('usuario')
+    televisor = Televisor.objects.filter(mac_address=mac).first()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Sincronizaciones'
+
+    headers = ['Fecha', 'Quién sincronizó', 'Persona', 'Mac Address', 'Estado', 'Resultado', 'Tipo']
+    ws.append(headers)
+    header_fill = PatternFill('solid', fgColor='F6186A')
+    header_font = Font(bold=True, color='FFFFFF')
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    for r in registros:
+        ws.append([
+            r.creado.strftime('%d/%m/%Y %H:%M'),
+            r.usuario_email or '—',
+            r.nombre_persona or (televisor.nombre_persona if televisor else '—'),
+            r.mac_address,
+            'Bloqueado' if r.lock_status else 'Desbloqueado',
+            'Aplicado' if r.aplicado else 'Sin cambios',
+            r.get_tipo_display(),
+        ])
+
+    for col, ancho in zip('ABCDEFG', (18, 26, 22, 20, 14, 14, 12)):
+        ws.column_dimensions[col].width = ancho
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    nombre_archivo = f"sync_{mac.replace(':', '-')}.xlsx"
+    response = HttpResponse(
+        buffer.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
+
+
+@login_required
+def registro_sync_tv_pincodes_export(request, mac):
+    """Exporta a Excel los Pin Codes generados de un televisor (por MAC)."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    pincodes = PinCodeGenerado.objects.filter(mac_address=mac).select_related('usuario')
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Pin Codes'
+
+    headers = ['Fecha', 'Mac Address', 'Passcode', 'Pin Code', 'Quién lo generó']
+    ws.append(headers)
+    header_fill = PatternFill('solid', fgColor='F6186A')
+    header_font = Font(bold=True, color='FFFFFF')
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    for p in pincodes:
+        ws.append([
+            p.creado.strftime('%d/%m/%Y %H:%M'),
+            p.mac_address,
+            p.passcode,
+            p.pin_code,
+            p.usuario_email or '—',
+        ])
+
+    for col, ancho in zip('ABCDE', (18, 20, 16, 16, 26)):
+        ws.column_dimensions[col].width = ancho
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    nombre_archivo = f"pincodes_{mac.replace(':', '-')}.xlsx"
+    response = HttpResponse(
+        buffer.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
 
 
 @login_required
@@ -672,6 +973,7 @@ def televisor_plantilla(request):
 def factura_import(request):
     """Importa facturas masivamente desde CSV/Excel (crea o actualiza)."""
     resultado = None
+    cambios = []
 
     if request.method == 'POST' and request.FILES.get('archivo'):
         try:
@@ -692,6 +994,7 @@ def factura_import(request):
             return redirect('factura_import')
 
         creadas, actualizadas, errores = 0, 0, []
+        estado_antes = {}  # tv.pk -> lock_status antes de importar (para detectar cambios)
 
         for i, fila in df.iterrows():
             n = i + 2  # +2: fila 1 es encabezado, índice base 0
@@ -718,6 +1021,10 @@ def factura_import(request):
             if tv is None:
                 errores.append(f'Fila {n}: no existe un televisor con MAC {mac}.')
                 continue
+
+            # Guardamos el estado de bloqueo ANTES de tocar sus facturas.
+            if tv.pk not in estado_antes:
+                estado_antes[tv.pk] = tv.lock_status
 
             _, creada = Factura.objects.update_or_create(
                 televisor=tv,
@@ -751,7 +1058,30 @@ def factura_import(request):
                 f'{len(errores)} con error.',
             )
 
-    return render(request, 'whaletv/factura_import.html', {'resultado': resultado})
+        # Detecta televisores cuyo estado bloqueado/desbloqueado cambió tras la importación.
+        cambiados = []
+        for pk, antes in estado_antes.items():
+            tv = Televisor.objects.get(pk=pk)
+            if tv.lock_status != antes:
+                cambiados.append(tv)
+
+        # Guardamos los IDs en sesión para poder sincronizar solo esos televisores.
+        request.session['sync_cambios_pks'] = [tv.pk for tv in cambiados]
+
+        cambios = [{
+            'mac': tv.mac_address,
+            'serial': tv.serial_number,
+            'fecha': tv.fecha_sincronizar,
+            'lock': tv.lock_status,
+            'cuotas_pagadas': tv.cuotas_pagadas,
+            'numero_cuotas': tv.numero_cuotas,
+        } for tv in cambiados]
+
+    return render(request, 'whaletv/factura_import.html', {
+        'resultado': resultado,
+        'cambios': cambios,
+        'n_cambios': len(cambios),
+    })
 
 
 @login_required

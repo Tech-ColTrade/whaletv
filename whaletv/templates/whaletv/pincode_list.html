@@ -1,0 +1,56 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}Pin Codes · Locking System{% endblock %}
+{% block nav_pin %}navlink-active{% endblock %}
+{% block breadcrumb %}<span class="text-whale">Devices Management</span> / Pin Codes{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between gap-4 flex-wrap mb-5">
+    <div>
+        <h2 class="text-xl font-bold text-gray-800">Pin Codes generados</h2>
+        <p class="text-sm text-gray-500">MAC, Passcode y Pin Code de cada desbloqueo manual · {{ total }} registro{{ total|pluralize }}.</p>
+    </div>
+</div>
+
+<form method="get" class="flex gap-2 mb-5 max-w-md">
+    <input type="text" name="q" value="{{ query }}" placeholder="Buscar MAC, Pin, Passcode o correo..." class="inp">
+    <button type="submit" class="btn btn-ghost">Buscar</button>
+</form>
+
+{% if registros %}
+<div class="card !p-0 overflow-x-auto">
+    <table class="w-full">
+        <thead>
+            <tr>
+                <th class="th">Fecha</th>
+                <th class="th">Mac Address</th>
+                <th class="th">Passcode</th>
+                <th class="th">Pin Code</th>
+                <th class="th">Quién lo generó</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in registros %}
+            <tr class="hover:bg-gray-50">
+                <td class="td whitespace-nowrap">{{ r.creado|date:"d/m/Y H:i" }}</td>
+                <td class="td font-medium">
+                    <a href="{% url 'registro_sync_tv' r.mac_address %}" class="text-whale hover:underline">{{ r.mac_address }}</a>
+                </td>
+                <td class="td font-mono">{{ r.passcode }}</td>
+                <td class="td font-mono font-bold text-whale">{{ r.pin_code }}</td>
+                <td class="td">{{ r.usuario_email|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="card text-center text-gray-400 py-12">
+    {% if query %}
+        No se encontraron Pin Codes para "{{ query }}".
+    {% else %}
+        Aún no se ha generado ningún Pin Code.
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

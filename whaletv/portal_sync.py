@@ -264,19 +264,76 @@ def _set_lock_select(driver, wait, deseado, res):
 
 
 def _set_next_date(driver, fecha, res):
-    """Escribe la Next Installment Date (formato MM/DD/YYYY)."""
+    """Escribe la Next Installment Date (formato MM/DD/YYYY) en el date-picker.
+
+    Usa la fecha de Vencimiento de la cuota pendiente. Element-UI es exigente:
+    hay que enfocar, limpiar, teclear, confirmar con ENTER y hacer blur SIN ESC
+    (ESC revierte el valor). Al final verifica que quedó y, si no, usa un
+    fallback por JavaScript que dispara los eventos input/change de Vue.
+    """
     fecha_str = fecha.strftime('%m/%d/%Y')
+
+    def _input_fecha():
+        return driver.find_element(By.CSS_SELECTOR, '.el-date-editor input')
+
     try:
-        inp = driver.find_element(By.CSS_SELECTOR, '.el-date-editor input')
+        inp = _input_fecha()
     except Exception:  # noqa: BLE001
         res.paso('No encontré el campo de fecha; lo omito.')
         return
+
+    # 1) Tecleado normal: enfocar, limpiar todo y escribir.
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", inp)
     inp.click()
     inp.send_keys(Keys.CONTROL, 'a')
+    inp.send_keys(Keys.DELETE)
     inp.send_keys(fecha_str)
     inp.send_keys(Keys.ENTER)
-    inp.send_keys(Keys.ESCAPE)
-    res.paso(f'Next Installment Date escrita: {fecha_str}.')
+
+    # 2) Blur haciendo click en un punto neutro (NO usar ESC: revierte el valor).
+    try:
+        neutro = driver.find_element(
+            By.XPATH, "//strong[normalize-space(text())='Device Info']"
+        )
+        driver.execute_script("arguments[0].click();", neutro)
+    except Exception:  # noqa: BLE001
+        driver.execute_script("document.body.click();")
+
+    # 3) Verificar; si no quedó, forzar por JS con eventos de Vue.
+    actual = ''
+    try:
+        actual = _input_fecha().get_attribute('value') or ''
+    except Exception:  # noqa: BLE001
+        pass
+
+    if fecha_str not in actual:
+        res.paso(f'La fecha no quedó tecleando (quedó "{actual}"). Forzando por JS...')
+        try:
+            inp = _input_fecha()
+            driver.execute_script(
+                """
+                const el = arguments[0], val = arguments[1];
+                const setter = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'value').set;
+                setter.call(el, val);
+                el.dispatchEvent(new Event('input', {bubbles: true}));
+                el.dispatchEvent(new Event('change', {bubbles: true}));
+                """,
+                inp, fecha_str,
+            )
+            inp.send_keys(Keys.ENTER)
+            try:
+                driver.execute_script("document.body.click();")
+            except Exception:  # noqa: BLE001
+                pass
+            actual = _input_fecha().get_attribute('value') or ''
+        except Exception as e:  # noqa: BLE001
+            res.paso(f'Fallback de fecha por JS falló: {e}')
+
+    if fecha_str in actual:
+        res.paso(f'Next Installment Date fijada: {fecha_str}.')
+    else:
+        res.paso(f'⚠ Next Installment Date NO quedó como se esperaba (quedó "{actual}").')
 
 
 def _aplicar_estado_remoto(driver, wait, televisor, res, sincronizar_fecha=True):
@@ -309,6 +366,18 @@ def _aplicar_estado_remoto(driver, wait, televisor, res, sincronizar_fecha=True)
     ))
     res.paso('Cambios guardados (volvió a modo lectura).')
     res.aplicado = True
+
+    # Refresco "duro" tras guardar: recarga del servidor y confirma que los
+    # cambios quedaron persistidos (no solo en la vista en memoria del SPA).
+    # Si el SPA no sobrevive a la recarga, lo ignoramos: ya se guardaron arriba.
+    try:
+        driver.refresh()
+        WebDriverWait(driver, 15).until(EC.presence_of_element_located(
+            (By.XPATH, "//strong[normalize-space(text())='Device Info']")
+        ))
+        res.paso('Página recargada tras guardar (cambios confirmados en el servidor).')
+    except Exception as e:  # noqa: BLE001
+        res.paso(f'No se pudo recargar para confirmar (los cambios ya se guardaron): {e}')
 
 
 def _procesar_televisor(driver, wait, cfg, televisor, res, dry_run, sincronizar_fecha):
@@ -343,21 +412,136 @@ def _procesar_televisor(driver, wait, cfg, televisor, res, dry_run, sincronizar_
         res.paso('DRY-RUN: no se modificó ni guardó nada en el portal.')
         res.aplicado = False
     else:
-        if remoto is not None and not res.cambiaria and not (
-            sincronizar_fecha and televisor.fecha_sincronizar
-        ):
-            res.paso('Estado ya coincide y no hay fecha que sincronizar: no toco nada.')
-            res.aplicado = False
-        else:
-            _aplicar_estado_remoto(
-                driver, wait, televisor, res, sincronizar_fecha=sincronizar_fecha
-            )
-            nuevo = _leer_estado_remoto(driver, res)
-            res.remoto_bloqueado = nuevo
-            res.cambiaria = (nuevo is not None and nuevo != res.local_bloqueado)
+        # Siempre aplicamos estado + fecha, coincidan o no con el portal.
+        _aplicar_estado_remoto(
+            driver, wait, televisor, res, sincronizar_fecha=sincronizar_fecha
+        )
+        nuevo = _leer_estado_remoto(driver, res)
+        res.remoto_bloqueado = nuevo
+        res.cambiaria = (nuevo is not None and nuevo != res.local_bloqueado)
 
     res.ok = True
     return res
+
+
+def _generar_pin_code(driver, wait, passcode, res):
+    """En el Detail ya abierto: abre 'Generate Pin Code', escribe el Passcode,
+    genera y devuelve el Pin Code que el portal muestra en el Detail
+    ('Your Pin Code: 214310')."""
+    import re
+
+    # 1) Botón "Generate Pin Code" de la sección Pin Code (en el Detail).
+    boton = wait.until(EC.element_to_be_clickable(
+        (By.XPATH, "//button[.//span[normalize-space(text())='Generate Pin Code']]")
+    ))
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'});", boton)
+    try:
+        boton.click()
+    except Exception:  # noqa: BLE001
+        driver.execute_script("arguments[0].click();", boton)
+    res.paso('Click en "Generate Pin Code" (abre el modal).')
+
+    # 2) Esperar el modal y su input de Passcode.
+    wait.until(EC.presence_of_element_located((
+        By.XPATH,
+        "//div[contains(@class,'el-dialog__body')]"
+        "//label[normalize-space(text())='Passcode']",
+    )))
+    campo = wait.until(EC.element_to_be_clickable(
+        (By.CSS_SELECTOR, '.el-dialog__body .modal-main input.el-input__inner')
+    ))
+    campo.clear()
+    campo.send_keys(passcode)
+    res.paso('Passcode ingresado en el modal.')
+
+    # 3) Botón "Generate Pin Code" del footer del modal.
+    generar = driver.find_element(
+        By.XPATH,
+        "//div[contains(@class,'el-dialog__body')]"
+        "//div[contains(@class,'modal-footer')]"
+        "//button[.//span[normalize-space(text())='Generate Pin Code']]",
+    )
+    driver.execute_script("arguments[0].click();", generar)
+    res.paso('Click en "Generate Pin Code" del modal; esperando el código...')
+
+    # 4) El modal se cierra y el Pin Code aparece en el Detail:
+    #    "Your Pin Code:  214310"
+    try:
+        WebDriverWait(driver, 30).until(EC.presence_of_element_located(
+            (By.XPATH, "//*[contains(normalize-space(.),'Your Pin Code')]")
+        ))
+    except Exception:  # noqa: BLE001
+        res.paso('No apareció la sección "Your Pin Code" tras generar.')
+
+    # Extraemos los dígitos que van justo después de "Your Pin Code".
+    pin = ''
+    try:
+        label = driver.find_element(
+            By.XPATH, "//*[contains(normalize-space(text()),'Your Pin Code')]"
+        )
+        for xp in ('.', '..', '../..', '../../..'):
+            try:
+                texto = label.find_element(By.XPATH, xp).text
+            except Exception:  # noqa: BLE001
+                continue
+            m = re.search(r'Your Pin Code\D*(\d{3,16})', texto)
+            if m:
+                pin = m.group(1)
+                break
+    except Exception as e:  # noqa: BLE001
+        res.paso(f'No pude leer el Pin Code del Detail: {e}')
+
+    # Fallback: buscarlo en todo el cuerpo de la página.
+    if not pin:
+        try:
+            cuerpo = driver.find_element(By.TAG_NAME, 'body').text
+            m = re.search(r'Your Pin Code\D*(\d{3,16})', cuerpo)
+            pin = m.group(1) if m else ''
+            res.paso(f'Pin por fallback de página: {pin or "(no encontrado)"}')
+        except Exception:  # noqa: BLE001
+            pass
+
+    return pin
+
+
+def generar_pin_code(mac, passcode, headless=None):
+    """Login -> busca el MAC -> abre Detail -> genera el Pin Code con el Passcode.
+
+    Devuelve (ResultadoSync, pin_code). pin_code='' si no se pudo obtener.
+    """
+    cfg = settings.WHALETV_PORTAL
+    if headless is None:
+        headless = cfg.get('HEADLESS', False)
+
+    res = ResultadoSync()
+    driver = None
+    try:
+        driver = _build_driver(headless)
+        wait = WebDriverWait(driver, cfg.get('TIMEOUT', 30))
+        _login(driver, wait, cfg, res)
+
+        encontrado = _abrir_detalle_por_mac(driver, wait, cfg, mac, res)
+        if not encontrado:
+            res.ok = False
+            res.error = f'No se encontró el MAC {mac} en el portal.'
+            return res, ''
+
+        pin = _generar_pin_code(driver, wait, passcode, res)
+        if pin:
+            res.ok = True
+            res.paso(f'Pin Code generado: {pin}')
+        else:
+            res.ok = False
+            res.error = 'El portal no devolvió un Pin Code (revisa el Passcode).'
+        return res, pin
+    except Exception as e:  # noqa: BLE001
+        res.ok = False
+        res.error = f'{type(e).__name__}: {e}'
+        res.paso(f'ERROR: {res.error}')
+        return res, ''
+    finally:
+        if driver is not None:
+            driver.quit()
 
 
 def sincronizar_televisor(televisor, dry_run=True, headless=None, sincronizar_fecha=True):

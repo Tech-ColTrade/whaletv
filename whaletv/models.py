@@ -68,9 +68,17 @@ class Televisor(models.Model):
 
     @property
     def fecha_sincronizar(self):
-        """Fecha que se empuja al portal (la cuota pendiente más antigua)."""
-        f = self.factura_pendiente
-        return f.fecha_vencimiento if f else None
+        """Fecha que se empuja al portal (Next Installment Date).
+
+        Si hay cuotas sin pagar, la de la cuota pendiente más antigua (la
+        próxima a cobrar). Si ya están TODAS pagadas, la de la última cuota
+        registrada (la de vencimiento más reciente).
+        """
+        pendiente = self.factura_pendiente
+        if pendiente:
+            return pendiente.fecha_vencimiento
+        ultima = self.facturas.order_by('fecha_vencimiento').last()
+        return ultima.fecha_vencimiento if ultima else None
 
     @property
     def due_status(self):
@@ -235,3 +243,29 @@ class RegistroSync(models.Model):
             aplicado=bool(aplicado),
             tipo=tipo,
         )
+
+
+class PinCodeGenerado(models.Model):
+    """Bitácora de cada Pin Code generado (Desbloquear Manual): MAC + Passcode + Pin."""
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='pincodes',
+        verbose_name='quién lo generó',
+    )
+    usuario_email = models.CharField('Correo', max_length=254, blank=True, default='')
+    mac_address = models.CharField('Mac Address', max_length=50)
+    passcode = models.CharField('Passcode', max_length=100)
+    pin_code = models.CharField('Pin Code', max_length=100)
+    creado = models.DateTimeField('Fecha', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'pin code generado'
+        verbose_name_plural = 'pin codes generados'
+        ordering = ['-creado']
+
+    def __str__(self):
+        return f'{self.mac_address} → {self.pin_code} ({self.creado:%d/%m/%Y %H:%M})'

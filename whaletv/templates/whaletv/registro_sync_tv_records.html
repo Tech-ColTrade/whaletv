@@ -1,31 +1,33 @@
 {% extends 'whaletv/base.html' %}
 
-{% block title %}Sincronizaciones · Locking System{% endblock %}
-{% block nav_sync %}navlink-active{% endblock %}
-{% block breadcrumb %}<span class="text-whale">Devices Management</span> / Sincronizaciones{% endblock %}
+{% block title %}Sincronizaciones · {{ mac }} · Locking System{% endblock %}
+{% block nav_tv %}navlink-active{% endblock %}
+{% block breadcrumb %}
+    <a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> /
+    <a href="{% url 'registro_sync_tv' mac %}" class="text-whale">{{ mac }}</a> / Sincronizaciones
+{% endblock %}
 
 {% block content %}
-<div class="flex items-center justify-between gap-4 flex-wrap mb-5">
-    <div>
-        <h2 class="text-xl font-bold text-gray-800">Sincronizaciones</h2>
-        <p class="text-sm text-gray-500">Quién sincronizó cada televisor y cuándo · {{ total }} registro{{ total|pluralize }}.</p>
+<div class="card mb-5">
+    <div class="flex items-start justify-between flex-wrap gap-3">
+        <div>
+            <h2 class="text-xl font-bold text-gray-800">Sincronizaciones de {{ mac }}</h2>
+            <p class="text-sm text-gray-500">{{ total }} sincronización{{ total|pluralize }} registrada{{ total|pluralize }}.</p>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+            <a href="{% url 'registro_sync_tv_export' mac %}" class="btn btn-ghost">⬇ Exportar Excel</a>
+            <a href="{% url 'registro_sync_tv' mac %}" class="btn btn-ghost">← Volver al detalle</a>
+        </div>
     </div>
 </div>
 
-<form method="get" class="flex gap-2 mb-5 max-w-md">
-    <input type="text" name="q" value="{{ query }}" placeholder="Buscar MAC, persona o correo..." class="inp">
-    <button type="submit" class="btn btn-ghost">Buscar</button>
-</form>
-
 {% if registros %}
-<div class="card !p-0 overflow-hidden">
+<div class="card !p-0 overflow-x-auto">
     <table class="w-full">
         <thead>
             <tr>
                 <th class="th">Fecha</th>
                 <th class="th">Quién sincronizó</th>
-                <th class="th">Persona (TV)</th>
-                <th class="th">Mac Address</th>
                 <th class="th">Estado</th>
                 <th class="th">Resultado</th>
                 <th class="th">Tipo</th>
@@ -36,10 +38,6 @@
             <tr class="hover:bg-gray-50">
                 <td class="td whitespace-nowrap">{{ r.creado|date:"d/m/Y H:i" }}</td>
                 <td class="td font-medium">{{ r.usuario_email|default:"—" }}</td>
-                <td class="td">{{ r.nombre_persona|default:"—" }}</td>
-                <td class="td font-medium">
-                    <a href="{% url 'registro_sync_tv' r.mac_address %}" class="text-whale hover:underline">{{ r.mac_address }}</a>
-                </td>
                 <td class="td">
                     {% if r.lock_status %}
                         <span class="pill pill-lock">Bloqueado</span>
@@ -62,11 +60,7 @@
 </div>
 {% else %}
 <div class="card text-center text-gray-400 py-12">
-    {% if query %}
-        No se encontraron sincronizaciones para "{{ query }}".
-    {% else %}
-        Aún no hay sincronizaciones registradas.
-    {% endif %}
+    No hay sincronizaciones registradas para esta MAC.
 </div>
 {% endif %}
 {% endblock %}

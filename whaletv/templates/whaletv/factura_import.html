@@ -1,6 +1,6 @@
 {% extends 'whaletv/base.html' %}
 
-{% block title %}Importar facturas · WhaleTV{% endblock %}
+{% block title %}Importar facturas · Locking System{% endblock %}
 {% block nav_tv %}navlink-active{% endblock %}
 {% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / Importar facturas{% endblock %}
 
@@ -19,6 +19,119 @@
     </div>
     {% endif %}
 </div>
+{% endif %}
+
+{% if n_cambios %}
+<div id="cambios-card" class="mb-6 max-w-4xl rounded-2xl bg-white dark:bg-[#1d1d22] shadow-xl ring-1 ring-whale/30 overflow-hidden">
+
+    <!-- ░░ BLOQUE 1 · Cabecera de alerta ░░ -->
+    <div class="bg-gradient-to-r from-whale to-whale-dark px-6 py-5 flex items-center gap-4">
+        <div class="w-12 h-12 shrink-0 rounded-xl bg-white/20 flex items-center justify-center text-2xl">⚠️</div>
+        <div class="text-white">
+            <h2 class="text-lg font-extrabold leading-tight">Se detectaron cambios de estado</h2>
+            <p class="text-sm text-white/80">Revisa antes de aplicarlos en el panel de Locking System.</p>
+        </div>
+    </div>
+
+    <div class="p-6 space-y-6">
+
+        <!-- ░░ BLOQUE 2 · Resumen ░░ -->
+        <div class="flex items-center gap-4 rounded-xl bg-whale/5 ring-1 ring-whale/15 px-5 py-4">
+            <div class="text-4xl font-extrabold text-whale leading-none">{{ n_cambios }}</div>
+            <div class="text-sm text-gray-600">
+                <p class="font-semibold text-gray-800">
+                    televisor{{ n_cambios|pluralize:"es" }} cambió de estado tras la importación
+                </p>
+                <p>Pasaron de bloqueado a desbloqueado (o viceversa). ¿Deseas sincronizar {{ n_cambios|pluralize:"este cambio,estos cambios" }}?</p>
+            </div>
+        </div>
+
+        <!-- ░░ BLOQUE 3 · Acciones ░░ -->
+        <div>
+            <p class="lbl mb-2">¿Qué quieres hacer?</p>
+            <div class="flex gap-2 flex-wrap">
+                <form method="post" action="{% url 'sync_cambios' %}" id="form-sync-cambios">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-primary">⟳ Aceptar y sincronizar</button>
+                </form>
+                <button type="button" class="btn btn-val" onclick="togglePreview()">
+                    <span id="preview-label">👁 Previsualizar cambios</span>
+                </button>
+                <button type="button" class="btn btn-ghost" onclick="salirSinSync()">Salir sin sincronizar</button>
+            </div>
+        </div>
+
+        <!-- ░░ BLOQUE 4 · Previsualización ░░ -->
+        <div id="preview" class="hidden">
+            <div class="flex items-center justify-between mb-2">
+                <p class="lbl !mb-0">Televisores que se van a sincronizar</p>
+                <span class="pill pill-ok">{{ n_cambios }} en total</span>
+            </div>
+            <div class="rounded-xl ring-1 ring-gray-100 overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th class="th">Mac Address</th>
+                            <th class="th">Serial Number</th>
+                            <th class="th">Fecha factura</th>
+                            <th class="th">Estado</th>
+                            <th class="th">Cuotas pagadas</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in cambios %}
+                        <tr class="hover:bg-gray-50">
+                            <td class="td font-medium">{{ c.mac }}</td>
+                            <td class="td">{{ c.serial|default:"—" }}</td>
+                            <td class="td">{% if c.fecha %}{{ c.fecha|date:"d/m/Y" }}{% else %}—{% endif %}</td>
+                            <td class="td">
+                                {% if c.lock %}
+                                    <span class="pill pill-lock">Bloqueado</span>
+                                {% else %}
+                                    <span class="pill pill-unlock">Desbloqueado</span>
+                                {% endif %}
+                            </td>
+                            <td class="td">{{ c.cuotas_pagadas }}/{{ c.numero_cuotas }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    let hayCambiosPendientes = true;
+    const urlTelevisores = "{% url 'televisor_list' %}";
+
+    function togglePreview() {
+        const oculto = document.getElementById('preview').classList.toggle('hidden');
+        document.getElementById('preview-label').textContent =
+            oculto ? '👁 Previsualizar cambios' : '🙈 Ocultar previsualización';
+    }
+
+    function salirSinSync() {
+        if (confirm('¿Estás seguro de salir? Los cambios ya quedaron guardados; podrás sincronizarlos luego desde Televisores.')) {
+            hayCambiosPendientes = false;
+            window.location.href = urlTelevisores;
+        }
+    }
+
+    // Al aceptar y sincronizar no debemos mostrar la advertencia de salida.
+    document.getElementById('form-sync-cambios').addEventListener('submit', function () {
+        hayCambiosPendientes = false;
+    });
+
+    // Si intenta cerrar/navegar sin decidir, el navegador le advierte.
+    window.addEventListener('beforeunload', function (e) {
+        if (hayCambiosPendientes) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+</script>
 {% endif %}
 
 <div class="card max-w-2xl">
