@@ -2,25 +2,31 @@
 
 {% block title %}Televisores · Locking System{% endblock %}
 {% block nav_tv %}navlink-active{% endblock %}
-{% block breadcrumb %}<span class="text-whale">Devices Management</span> / Televisores{% endblock %}
+{% block breadcrumb %}<span class="text-whale">Gestión de dispositivos</span> / Televisores{% endblock %}
 
 {% block content %}
 <div class="flex items-center justify-between gap-4 flex-wrap mb-5">
     <h2 class="text-xl font-bold text-gray-800">Televisores</h2>
     <div class="flex gap-2 items-center flex-wrap">
+        <form method="post" action="{% url 'validacion_iniciar' %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-val">Validación masiva</button>
+        </form>
         <form method="post" action="{% url 'sync_iniciar' %}"
               onsubmit="return confirm('Esto APLICARÁ el estado de TODOS los televisores en el portal real de Locking System, en segundo plano. ¿Continuar?');">
             {% csrf_token %}
             <button type="submit" class="btn btn-primary">⟳ Sincronizar todo</button>
         </form>
-        <a href="{% url 'televisor_import' %}" class="btn btn-ghost">Importar compras</a>
-        <a href="{% url 'factura_import' %}" class="btn btn-ghost">Importar facturas</a>
+        <a href="{% url 'televisor_import' %}" class="btn btn-ghost">Enrolar Televisores</a>
+        <a href="{% url 'bloqueo_import' %}" class="btn btn-ghost">Enrolar Estado</a>
+        <a href="{% url 'registro_sync_export' %}" class="btn btn-ghost">⬇ Exportar sincronizaciones</a>
+        <a href="{% url 'pincode_export' %}" class="btn btn-ghost">⬇ Exportar Códigos Pin</a>
         <a href="{% url 'televisor_create' %}" class="btn btn-primary">+ Nuevo</a>
     </div>
 </div>
 
 <form method="get" class="flex gap-2 mb-5 max-w-md">
-    <input type="text" name="q" value="{{ query }}" placeholder="Buscar MAC, serial, nombre..." class="inp">
+    <input type="text" name="q" value="{{ query }}" placeholder="Buscar MAC, serial, crédito, nombre..." class="inp">
     <button type="submit" class="btn btn-ghost">Buscar</button>
 </form>
 
@@ -29,9 +35,10 @@
     <table class="w-full">
         <thead>
             <tr>
-                <th class="th !text-center">Mac Address</th>
-                <th class="th !text-center">Lock</th>
-                <th class="th !text-center">Due</th>
+                <th class="th !text-center">Dirección MAC</th>
+                <th class="th !text-center">Número de serie</th>
+                <th class="th !text-center">N° Crédito</th>
+                <th class="th !text-center">Estado</th>
                 <th class="th !text-center">Acciones</th>
             </tr>
         </thead>
@@ -41,6 +48,8 @@
                 <td class="td font-medium text-center">
                     <a href="{% url 'registro_sync_tv' tv.mac_address %}" class="text-whale hover:underline">{{ tv.mac_address }}</a>
                 </td>
+                <td class="td text-center">{{ tv.serial_number|default:"—" }}</td>
+                <td class="td text-center break-all">{{ tv.numero_credito|default:"—" }}</td>
                 <td class="td text-center">
                     {% if tv.lock_status %}
                         <span class="pill pill-lock">Bloqueado</span>
@@ -48,15 +57,9 @@
                         <span class="pill pill-unlock">Desbloqueado</span>
                     {% endif %}
                 </td>
-                <td class="td text-center">
-                    {% if tv.due_status %}
-                        <span class="pill pill-due">Vencida</span>
-                    {% else %}
-                        <span class="pill pill-ok">Al día</span>
-                    {% endif %}
-                </td>
                 <td class="td whitespace-nowrap">
                     <div class="flex items-center justify-center gap-1.5">
+                        <a href="{% url 'televisor_historico' tv.pk %}" class="btn btn-sm btn-val">Estado</a>
                         <a href="{% url 'televisor_update' tv.pk %}" class="btn btn-sm btn-edit">Editar</a>
                         <a href="{% url 'televisor_delete' tv.pk %}" class="btn btn-sm btn-del">Eliminar</a>
                     </div>

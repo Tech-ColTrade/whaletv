@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Factura, RegistroSync, SyncJob, SyncJobItem, Televisor
+from .models import Bloqueo, RegistroSync, SyncJob, SyncJobItem, Televisor
 
 
 @admin.register(SyncJob)
@@ -21,8 +21,8 @@ class RegistroSyncAdmin(admin.ModelAdmin):
     ordering = ('-creado',)
 
 
-class FacturaInline(admin.TabularInline):
-    model = Factura
+class BloqueoInline(admin.TabularInline):
+    model = Bloqueo
     extra = 0
 
 
@@ -31,32 +31,25 @@ class TelevisorAdmin(admin.ModelAdmin):
     list_display = (
         'mac_address',
         'serial_number',
-        'nombre_persona',
-        'correo_persona',
-        'numero_cuotas',
+        'numero_credito',
         'lock_status',
     )
     list_filter = ('lock_status',)
-    search_fields = ('mac_address', 'serial_number', 'nombre_persona', 'correo_persona')
+    search_fields = ('mac_address', 'serial_number', 'numero_credito')
     ordering = ('-created_at',)
     readonly_fields = ('lock_status',)
-    inlines = [FacturaInline]
+    inlines = [BloqueoInline]
 
 
-@admin.register(Factura)
-class FacturaAdmin(admin.ModelAdmin):
+@admin.register(Bloqueo)
+class BloqueoAdmin(admin.ModelAdmin):
     list_display = (
-        'numero_factura',
+        'mac_address',
+        'serial_number',
+        'estado',
         'televisor',
-        'numero_cuota',
-        'fecha_vencimiento',
-        'pagada',
-        'vencida',
+        'created_at',
     )
-    list_filter = ('pagada',)
-    search_fields = ('numero_factura', 'televisor__mac_address')
-    ordering = ('televisor', 'numero_cuota')
-
-    @admin.display(boolean=True, description='Vencida')
-    def vencida(self, obj):
-        return obj.vencida
+    list_filter = ('estado',)
+    search_fields = ('mac_address', 'serial_number', 'televisor__mac_address')
+    ordering = ('-created_at',)

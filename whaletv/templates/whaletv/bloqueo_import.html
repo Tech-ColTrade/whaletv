@@ -1,0 +1,163 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}Enrolar Estado · Locking System{% endblock %}
+{% block nav_tv %}navlink-active{% endblock %}
+{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / Enrolar Estado{% endblock %}
+
+{% block content %}
+{% if resultado %}
+<div class="max-w-4xl">
+
+    <!-- Resumen del resultado -->
+    <div class="card mb-5">
+        <h2 class="text-lg font-bold text-gray-800 mb-4">Resultado de la importación</h2>
+        <div class="flex flex-wrap gap-3">
+            <div class="flex items-center gap-2.5 rounded-xl bg-gray-50 ring-1 ring-gray-100 px-4 py-2.5">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                <span class="text-sm text-gray-600">Creados</span>
+                <span class="text-lg font-bold text-gray-800 tabular-nums">{{ resultado.creados }}</span>
+            </div>
+            <div class="flex items-center gap-2.5 rounded-xl bg-gray-50 ring-1 ring-gray-100 px-4 py-2.5">
+                <span class="w-2.5 h-2.5 rounded-full bg-gray-300"></span>
+                <span class="text-sm text-gray-600">Actualizados</span>
+                <span class="text-lg font-bold text-gray-800 tabular-nums">{{ resultado.actualizados }}</span>
+            </div>
+            {% if resultado.errores %}
+            <div class="flex items-center gap-2.5 rounded-xl bg-gray-50 ring-1 ring-gray-100 px-4 py-2.5">
+                <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                <span class="text-sm text-gray-600">Con error</span>
+                <span class="text-lg font-bold text-gray-800 tabular-nums">{{ resultado.errores|length }}</span>
+            </div>
+            {% endif %}
+        </div>
+        {% if resultado.errores %}
+        <div class="mt-4 text-sm text-rose-700 max-h-56 overflow-auto rounded-xl bg-rose-50/50 ring-1 ring-rose-100 divide-y divide-rose-100">
+            {% for e in resultado.errores %}<div class="px-3 py-2">{{ e }}</div>{% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if n_cambios %}
+    <!-- Cambios de estado detectados -->
+    <div id="cambios-card" class="card mb-5">
+        <div class="flex items-start gap-4 pb-4 mb-5 border-b border-gray-100">
+            <div class="text-3xl font-extrabold text-whale leading-none mt-0.5 tabular-nums">{{ n_cambios }}</div>
+            <div>
+                <h2 class="text-base font-bold text-gray-800">Se detectaron cambios de estado</h2>
+                <p class="text-sm text-gray-500">
+                    {{ n_cambios }} televisor{{ n_cambios|pluralize:"es" }} cambió de estado tras la importación.
+                    Revisa antes de aplicarlos en el portal de Locking System.
+                </p>
+            </div>
+        </div>
+
+        <div class="flex gap-2 flex-wrap">
+            <form method="post" action="{% url 'sync_cambios' %}" id="form-sync-cambios">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary">Aceptar y sincronizar</button>
+            </form>
+            <button type="button" class="btn btn-ghost" onclick="togglePreview()">
+                <span id="preview-label">Previsualizar cambios</span>
+            </button>
+            <a href="{% url 'televisor_list' %}" class="btn btn-ghost" onclick="hayCambiosPendientes=false">Salir sin sincronizar</a>
+        </div>
+
+        <!-- Previsualización -->
+        <div id="preview" class="hidden mt-5">
+            <div class="rounded-xl ring-1 ring-gray-100 overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr>
+                            <th class="th">Dirección MAC</th>
+                            <th class="th">Número de serie</th>
+                            <th class="th">N° Crédito</th>
+                            <th class="th">Fecha portal</th>
+                            <th class="th">Cambio de estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for c in cambios %}
+                        <tr class="hover:bg-gray-50">
+                            <td class="td font-medium">{{ c.mac }}</td>
+                            <td class="td">{{ c.serial|default:"—" }}</td>
+                            <td class="td">{{ c.numero_credito|default:"—" }}</td>
+                            <td class="td">{% if c.fecha %}{{ c.fecha|date:"d/m/Y" }}{% else %}—{% endif %}</td>
+                            <td class="td">
+                                <span class="inline-flex items-center gap-2">
+                                    {% if c.antes %}
+                                        <span class="pill pill-lock">Bloqueado</span>
+                                    {% else %}
+                                        <span class="pill pill-unlock">Desbloqueado</span>
+                                    {% endif %}
+                                    <span class="text-gray-400">→</span>
+                                    {% if c.despues %}
+                                        <span class="pill pill-lock">Bloqueado</span>
+                                    {% else %}
+                                        <span class="pill pill-unlock">Desbloqueado</span>
+                                    {% endif %}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div>
+        <a href="{% url 'bloqueo_import' %}" class="btn btn-ghost">Importar otro archivo</a>
+    </div>
+</div>
+
+<script>
+    let hayCambiosPendientes = {% if n_cambios %}true{% else %}false{% endif %};
+
+    function togglePreview() {
+        const oculto = document.getElementById('preview').classList.toggle('hidden');
+        document.getElementById('preview-label').textContent =
+            oculto ? 'Previsualizar cambios' : 'Ocultar previsualización';
+    }
+
+    const formSync = document.getElementById('form-sync-cambios');
+    if (formSync) {
+        // Al aceptar y sincronizar no debemos mostrar la advertencia de salida.
+        formSync.addEventListener('submit', function () { hayCambiosPendientes = false; });
+    }
+
+    // Si intenta cerrar/navegar sin decidir, el navegador le advierte.
+    window.addEventListener('beforeunload', function (e) {
+        if (hayCambiosPendientes) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    });
+</script>
+
+{% else %}
+<div class="card max-w-2xl">
+    <h2 class="text-xl font-bold text-gray-800 mb-2">Enrolar Estado</h2>
+    <p class="text-sm text-gray-600 mb-4">Sube un archivo <b>Excel (.xlsx)</b> (también acepta CSV) con el <b>Serial</b>, la
+       <b>MAC</b> y el <b>estado</b> de cada televisor. Si el TV no existe (por su <b>MAC</b>) se <b>crea</b>; el estado
+       fija si queda <b>bloqueado</b> o <b>desbloqueado</b>.</p>
+
+    <table class="w-full text-sm border border-gray-200 mb-4">
+        <tr class="bg-gray-50"><th class="border border-gray-200 px-3 py-2 text-left">Columna</th><th class="border border-gray-200 px-3 py-2 text-left">Ejemplo</th><th class="border border-gray-200 px-3 py-2 text-left">Obligatoria</th></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">serial_number</td><td class="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:EE</td><td class="border border-gray-200 px-3 py-2">No</td></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">mac_address</td><td class="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:EE</td><td class="border border-gray-200 px-3 py-2">Sí (identifica el TV)</td></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">estado</td><td class="border border-gray-200 px-3 py-2">bloqueado / desbloqueado</td><td class="border border-gray-200 px-3 py-2">Sí</td></tr>
+    </table>
+
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+        {% csrf_token %}
+        <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required class="block text-sm">
+        <div class="flex gap-2">
+            <button type="submit" class="btn btn-primary">Importar</button>
+            <a href="{% url 'bloqueo_plantilla' %}" class="btn btn-ghost">Descargar plantilla Excel</a>
+            <a href="{% url 'televisor_list' %}" class="btn btn-ghost">Volver</a>
+        </div>
+    </form>
+</div>
+{% endif %}
+{% endblock %}

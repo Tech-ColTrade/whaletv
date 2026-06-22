@@ -369,15 +369,17 @@ def _aplicar_estado_remoto(driver, wait, televisor, res, sincronizar_fecha=True)
 
     # Refresco "duro" tras guardar: recarga del servidor y confirma que los
     # cambios quedaron persistidos (no solo en la vista en memoria del SPA).
-    # Si el SPA no sobrevive a la recarga, lo ignoramos: ya se guardaron arriba.
-    try:
-        driver.refresh()
-        WebDriverWait(driver, 15).until(EC.presence_of_element_located(
-            (By.XPATH, "//strong[normalize-space(text())='Device Info']")
-        ))
-        res.paso('Página recargada tras guardar (cambios confirmados en el servidor).')
-    except Exception as e:  # noqa: BLE001
-        res.paso(f'No se pudo recargar para confirmar (los cambios ya se guardaron): {e}')
+    # Es costoso (una recarga completa por TV), así que es opcional: por defecto
+    # NO se hace, porque la reaparición del botón Edit ya confirma el guardado.
+    if settings.WHALETV_PORTAL.get('CONFIRMAR_RECARGA', False):
+        try:
+            driver.refresh()
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located(
+                (By.XPATH, "//strong[normalize-space(text())='Device Info']")
+            ))
+            res.paso('Página recargada tras guardar (cambios confirmados en el servidor).')
+        except Exception as e:  # noqa: BLE001
+            res.paso(f'No se pudo recargar para confirmar (los cambios ya se guardaron): {e}')
 
 
 def _procesar_televisor(driver, wait, cfg, televisor, res, dry_run, sincronizar_fecha):
@@ -624,11 +626,15 @@ def sincronizar_todos(televisores, dry_run=False, headless=None, sincronizar_fec
 # Sincronización masiva en segundo plano y en paralelo (para gran escala)
 # ---------------------------------------------------------------------------
 
-def ejecutar_job(job_id, workers=4, sincronizar_fecha=True):
+def ejecutar_job(job_id, workers=4, sincronizar_fecha=True, dry_run=False):
     """Procesa un SyncJob en paralelo con varios navegadores (cada uno 1 login).
 
     Pensado para correr en un thread aparte (no bloquea la petición web).
     Cada worker toma televisores de una cola compartida y actualiza su item.
+
+    Si dry_run=True es una VALIDACIÓN: solo consulta el estado en el portal,
+    no modifica nada ni escribe en la bitácora; guarda en cada item el estado
+    remoto, el local y si coinciden.
     """
     import queue
     import threading
@@ -655,7 +661,8 @@ def ejecutar_job(job_id, workers=4, sincronizar_fecha=True):
     for par in pendientes:
         cola.put(par)
 
-    n_workers = max(1, min(int(workers), 8))
+    tope = int(cfg.get('MAX_WORKERS', 6))
+    n_workers = max(1, min(int(workers), tope))
 
     def worker():
         driver = None
@@ -680,27 +687,47 @@ def ejecutar_job(job_id, workers=4, sincronizar_fecha=True):
                     driver.get(cfg['DEVICE_LIST_URL'])
                     _procesar_televisor(
                         driver, wait, cfg, tv, res,
-                        dry_run=False, sincronizar_fecha=sincronizar_fecha,
+                        dry_run=dry_run, sincronizar_fecha=sincronizar_fecha,
                     )
                     estado = 'ok' if res.ok else 'error'
-                    mensaje = res.error if not res.ok else (
-                        f'{"Bloqueado" if res.remoto_bloqueado else "Desbloqueado"}'
-                        + (' · aplicado' if res.aplicado else ' · sin cambios')
-                    )
-                    SyncJobItem.objects.filter(pk=item_pk).update(
-                        estado=estado, aplicado=res.aplicado, mensaje=mensaje[:500],
-                    )
-                    if res.ok:
-                        RegistroSync.objects.create(
-                            usuario_id=job_usuario_id,
-                            usuario_email=job_usuario_email,
-                            televisor=tv,
-                            nombre_persona=tv.nombre_persona,
-                            mac_address=tv.mac_address,
-                            lock_status=bool(tv.lock_status),
-                            aplicado=res.aplicado,
-                            tipo='masivo',
+
+                    if dry_run:
+                        # Validación: comparar estado del portal con el local.
+                        def _txt(b):
+                            return '¿?' if b is None else ('Bloqueado' if b else 'Desbloqueado')
+                        coincide = (
+                            res.remoto_bloqueado is not None
+                            and res.remoto_bloqueado == res.local_bloqueado
                         )
+                        mensaje = res.error if not res.ok else (
+                            f'Portal: {_txt(res.remoto_bloqueado)} | '
+                            f'App: {_txt(res.local_bloqueado)}'
+                        )
+                        SyncJobItem.objects.filter(pk=item_pk).update(
+                            estado=estado,
+                            remoto_bloqueado=res.remoto_bloqueado,
+                            local_bloqueado=res.local_bloqueado,
+                            coincide=coincide if res.ok else None,
+                            mensaje=mensaje[:500],
+                        )
+                    else:
+                        mensaje = res.error if not res.ok else (
+                            f'{"Bloqueado" if res.remoto_bloqueado else "Desbloqueado"}'
+                            + (' · aplicado' if res.aplicado else ' · sin cambios')
+                        )
+                        SyncJobItem.objects.filter(pk=item_pk).update(
+                            estado=estado, aplicado=res.aplicado, mensaje=mensaje[:500],
+                        )
+                        if res.ok:
+                            RegistroSync.objects.create(
+                                usuario_id=job_usuario_id,
+                                usuario_email=job_usuario_email,
+                                televisor=tv,
+                                mac_address=tv.mac_address,
+                                lock_status=bool(tv.lock_status),
+                                aplicado=res.aplicado,
+                                tipo='masivo',
+                            )
                 except Exception as e:  # noqa: BLE001
                     SyncJobItem.objects.filter(pk=item_pk).update(
                         estado='error', mensaje=f'{type(e).__name__}: {e}'[:500],

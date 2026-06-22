@@ -2,7 +2,7 @@
 
 {% block title %}Sincronizaciones · Locking System{% endblock %}
 {% block nav_sync %}navlink-active{% endblock %}
-{% block breadcrumb %}<span class="text-whale">Devices Management</span> / Sincronizaciones{% endblock %}
+{% block breadcrumb %}<span class="text-whale">Gestión de dispositivos</span> / Sincronizaciones{% endblock %}
 
 {% block content %}
 <div class="flex items-center justify-between gap-4 flex-wrap mb-5">
@@ -10,6 +10,9 @@
         <h2 class="text-xl font-bold text-gray-800">Sincronizaciones</h2>
         <p class="text-sm text-gray-500">Quién sincronizó cada televisor y cuándo · {{ total }} registro{{ total|pluralize }}.</p>
     </div>
+    {% if total %}
+    <a href="{% url 'registro_sync_export' %}{% if query %}?q={{ query|urlencode }}{% endif %}" class="btn btn-primary">⬇ Exportar todo a Excel</a>
+    {% endif %}
 </div>
 
 <form method="get" class="flex gap-2 mb-5 max-w-md">
@@ -25,7 +28,7 @@
                 <th class="th">Fecha</th>
                 <th class="th">Quién sincronizó</th>
                 <th class="th">Persona (TV)</th>
-                <th class="th">Mac Address</th>
+                <th class="th">Dirección MAC</th>
                 <th class="th">Estado</th>
                 <th class="th">Resultado</th>
                 <th class="th">Tipo</th>

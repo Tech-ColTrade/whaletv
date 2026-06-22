@@ -1,6 +1,7 @@
 import datetime
 import os
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -8,8 +9,8 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .forms import FacturaForm, TelevisorForm
-from .models import Factura, PinCodeGenerado, RegistroSync, SyncJob, SyncJobItem, Televisor
+from .forms import BloqueoForm, TelevisorForm
+from .models import Bloqueo, PinCodeGenerado, RegistroSync, SyncJob, SyncJobItem, Televisor
 
 
 def login_view(request):
@@ -60,8 +61,7 @@ def televisor_list(request):
         televisores = televisores.filter(
             Q(mac_address__icontains=query)
             | Q(serial_number__icontains=query)
-            | Q(nombre_persona__icontains=query)
-            | Q(correo_persona__icontains=query)
+            | Q(numero_credito__icontains=query)
         )
 
     return render(request, 'whaletv/televisor_list.html', {
@@ -111,11 +111,12 @@ def televisor_update(request, pk):
 
 @login_required
 def televisor_validar(request, pk):
-    """Sincroniza (dry-run) el estado del televisor con el portal real de WhaleTV."""
+    """Consulta (dry-run) el estado del televisor en el portal real de WhaleTV."""
     televisor = get_object_or_404(Televisor, pk=pk)
+    destino = redirect('registro_sync_tv', mac=televisor.mac_address)
 
     if request.method != 'POST':
-        return redirect('televisor_list')
+        return destino
 
     from .portal_sync import sincronizar_televisor
 
@@ -127,22 +128,28 @@ def televisor_validar(request, pk):
         return 'Bloqueado' if b else 'Desbloqueado'
 
     if resultado.ok:
-        base = (
-            f'[{televisor.mac_address}] DRY-RUN · '
-            f'Portal: {estado(resultado.remoto_bloqueado)} | '
-            f'App: {estado(resultado.local_bloqueado)}'
-        )
         if resultado.cambiaria:
-            messages.warning(request, f'{base} → DEBERÍA cambiarse en el portal.')
+            messages.warning(
+                request,
+                f'El televisor {televisor.mac_address} está '
+                f'{estado(resultado.remoto_bloqueado)} en el portal, pero '
+                f'{estado(resultado.local_bloqueado)} en la app. '
+                'Conviene sincronizar para que coincidan.',
+            )
         else:
-            messages.success(request, f'{base} → coinciden, nada que cambiar.')
+            messages.success(
+                request,
+                f'El televisor {televisor.mac_address} está '
+                f'{estado(resultado.remoto_bloqueado)} en el portal, igual que en la app. '
+                'No hay nada que sincronizar.',
+            )
     else:
         messages.error(
             request,
-            f'[{televisor.mac_address}] Error validando: {resultado.error}',
+            f'No se pudo validar el televisor {televisor.mac_address}: {resultado.error}',
         )
 
-    return redirect('televisor_list')
+    return destino
 
 
 @login_required
@@ -295,8 +302,9 @@ def sync_iniciar(request):
         messages.warning(request, 'No hay televisores para sincronizar.')
         return redirect('televisor_list')
 
-    # 1 TV → 1 navegador, 2 → 2, 3 → 3, 4 o más → siempre 4.
-    workers = max(1, min(len(televisores), 4))
+    # 1 navegador por TV, con un tope configurable (WHALETV_PORTAL['MAX_WORKERS']).
+    tope = int(settings.WHALETV_PORTAL.get('MAX_WORKERS', 6))
+    workers = max(1, min(len(televisores), tope))
 
     job = SyncJob.objects.create(
         total=len(televisores),
@@ -310,6 +318,67 @@ def sync_iniciar(request):
 
     hilo = threading.Thread(
         target=ejecutar_job, args=(job.pk, workers), daemon=True,
+    )
+    hilo.start()
+
+    return redirect('sync_progreso', pk=job.pk)
+
+
+@login_required
+def validacion_iniciar(request):
+    """Lanza una VALIDACIÓN masiva (dry-run): consulta el estado de cada TV en
+    el portal y lo compara con el de la app, sin modificar nada."""
+    if request.method != 'POST':
+        return redirect('televisor_list')
+
+    import datetime
+    import threading
+
+    from django.utils import timezone
+
+    from .portal_sync import ejecutar_job
+
+    # Auto-recupera jobs "colgados" (igual que en sync_iniciar).
+    limite = timezone.now() - datetime.timedelta(minutes=10)
+    SyncJob.objects.filter(
+        estado__in=SyncJob.ACTIVOS, actualizado__lt=limite
+    ).update(
+        estado='cancelado',
+        terminado=timezone.now(),
+        error='Cancelado automáticamente (sin actividad).',
+    )
+
+    activo = SyncJob.objects.filter(estado__in=SyncJob.ACTIVOS).first()
+    if activo:
+        messages.info(
+            request,
+            'Ya hay un proceso en curso. Puedes cancelarlo aquí si se quedó pegado.',
+        )
+        return redirect('sync_progreso', pk=activo.pk)
+
+    Televisor.refrescar_todos()
+    televisores = list(Televisor.objects.all())
+    if not televisores:
+        messages.warning(request, 'No hay televisores para validar.')
+        return redirect('televisor_list')
+
+    # 1 navegador por TV, con un tope de 4 (1→1, 2→2, 3→3, 4 o más → 4).
+    workers = max(1, min(len(televisores), 4))
+
+    job = SyncJob.objects.create(
+        tipo='validacion',
+        total=len(televisores),
+        workers=workers,
+        usuario=request.user,
+        usuario_email=getattr(request.user, 'email', '') or '',
+    )
+    SyncJobItem.objects.bulk_create([
+        SyncJobItem(job=job, televisor=tv, mac=tv.mac_address) for tv in televisores
+    ])
+
+    hilo = threading.Thread(
+        target=ejecutar_job, args=(job.pk, workers),
+        kwargs={'dry_run': True}, daemon=True,
     )
     hilo.start()
 
@@ -356,8 +425,9 @@ def sync_cambios(request):
         )
         return redirect('sync_progreso', pk=activo.pk)
 
-    # 1 TV → 1 navegador, 2 → 2, 3 → 3, 4 o más → siempre 4.
-    workers = max(1, min(len(televisores), 4))
+    # 1 navegador por TV, con un tope configurable (WHALETV_PORTAL['MAX_WORKERS']).
+    tope = int(settings.WHALETV_PORTAL.get('MAX_WORKERS', 6))
+    workers = max(1, min(len(televisores), tope))
 
     job = SyncJob.objects.create(
         total=len(televisores),
@@ -427,6 +497,8 @@ def sync_progreso_api(request, pk):
     error = items.filter(estado='error').count()
     aplicados = items.filter(estado='ok', aplicado=True).count()
     sin_cambios = items.filter(estado='ok', aplicado=False).count()
+    coinciden = items.filter(estado='ok', coincide=True).count()
+    no_coinciden = items.filter(estado='ok', coincide=False).count()
     procesados = ok + error
     total = job.total or items.count()
     pct = round(procesados * 100 / total) if total else 100
@@ -436,6 +508,7 @@ def sync_progreso_api(request, pk):
     )
 
     return JsonResponse({
+        'tipo': job.tipo,
         'estado': job.estado,
         'total': total,
         'procesados': procesados,
@@ -443,10 +516,111 @@ def sync_progreso_api(request, pk):
         'error': error,
         'aplicados': aplicados,
         'sin_cambios': sin_cambios,
+        'coinciden': coinciden,
+        'no_coinciden': no_coinciden,
         'porcentaje': pct,
         'terminado': job.estado in ('terminado', 'error', 'cancelado'),
         'errores': errores,
     })
+
+
+def _texto_estado(bloqueado):
+    return 'Bloqueado' if bloqueado else 'Desbloqueado'
+
+
+def _transicion_estado(final_bloqueado, aplicado):
+    """Devuelve (estado_anterior, estado_final) como texto.
+
+    Si la sincronización 'aplicó' un cambio, el estado anterior era el opuesto
+    del final; si no aplicó nada, ya estaba igual (anterior == final).
+    """
+    final = bool(final_bloqueado)
+    antes = (not final) if aplicado else final
+    return _texto_estado(antes), _texto_estado(final)
+
+
+def _excel_header(ws, headers):
+    """Escribe la fila de encabezados con el estilo rosa de la app."""
+    from openpyxl.styles import Font, PatternFill, Alignment
+    ws.append(headers)
+    fill = PatternFill('solid', fgColor='F6186A')
+    font = Font(bold=True, color='FFFFFF')
+    for cell in ws[1]:
+        cell.fill = fill
+        cell.font = font
+        cell.alignment = Alignment(horizontal='center')
+
+
+def _excel_response(wb, nombre_archivo):
+    import io
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    response = HttpResponse(
+        buffer.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+    return response
+
+
+@login_required
+def sync_job_export(request, pk):
+    """Exporta a Excel el resultado de UN trabajo masivo.
+
+    - Sincronización: lista todos los TVs con su transición de estado.
+    - Validación: lista SOLO los TVs cuyo estado NO coincide con el portal.
+    """
+    from openpyxl import Workbook
+
+    job = get_object_or_404(SyncJob, pk=pk)
+    items = job.items.select_related('televisor')
+
+    wb = Workbook()
+    ws = wb.active
+
+    if job.tipo == 'validacion':
+        ws.title = 'No coinciden'
+        _excel_header(ws, ['Dirección MAC', 'Serial Number', 'N° Crédito',
+                           'Estado en el portal', 'Estado en la app'])
+        for item in items.filter(estado='ok', coincide=False):
+            tv = item.televisor
+            ws.append([
+                item.mac,
+                tv.serial_number if tv else '—',
+                tv.numero_credito if tv else '—',
+                _texto_estado(item.remoto_bloqueado) if item.remoto_bloqueado is not None else '¿?',
+                _texto_estado(item.local_bloqueado) if item.local_bloqueado is not None else '¿?',
+            ])
+        for col, ancho in zip('ABCDE', (20, 20, 22, 20, 20)):
+            ws.column_dimensions[col].width = ancho
+        nombre_archivo = f'validacion_{job.pk}_{job.creado:%Y%m%d_%H%M}.xlsx'
+        return _excel_response(wb, nombre_archivo)
+
+    ws.title = 'Sincronización'
+    _excel_header(ws, ['Dirección MAC', 'Serial Number', 'N° Crédito',
+                       'Estado anterior', 'Estado final', 'Sincronización', 'Mensaje'])
+    for item in items:
+        tv = item.televisor
+        if item.estado == 'ok':
+            # El mensaje OK empieza con "Bloqueado"/"Desbloqueado" (estado final).
+            final = item.mensaje.strip().lower().startswith('bloqueado')
+            antes, despues = _transicion_estado(final, item.aplicado)
+        else:
+            antes, despues = '—', '—'
+        ws.append([
+            item.mac,
+            tv.serial_number if tv else '—',
+            tv.numero_credito if tv else '—',
+            antes,
+            despues,
+            item.get_estado_display(),
+            item.mensaje or '—',
+        ])
+    for col, ancho in zip('ABCDEFG', (20, 20, 22, 16, 16, 14, 44)):
+        ws.column_dimensions[col].width = ancho
+    nombre_archivo = f'sincronizacion_{job.pk}_{job.creado:%Y%m%d_%H%M}.xlsx'
+    return _excel_response(wb, nombre_archivo)
 
 
 @login_required
@@ -488,6 +662,118 @@ def pincode_list(request):
         'query': query,
         'total': registros.count(),
     })
+
+
+@login_required
+def registro_sync_export(request):
+    """Exporta a Excel TODAS las sincronizaciones (respeta la búsqueda activa)."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    query = request.GET.get('q', '').strip()
+    registros = RegistroSync.objects.select_related('usuario', 'televisor')
+    if query:
+        registros = registros.filter(
+            Q(mac_address__icontains=query)
+            | Q(nombre_persona__icontains=query)
+            | Q(usuario_email__icontains=query)
+        )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Sincronizaciones'
+
+    headers = ['Fecha', 'Quién sincronizó', 'Persona', 'Dirección MAC',
+               'Estado anterior', 'Estado final', 'Resultado', 'Tipo']
+    ws.append(headers)
+    header_fill = PatternFill('solid', fgColor='F6186A')
+    header_font = Font(bold=True, color='FFFFFF')
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    for r in registros:
+        antes, despues = _transicion_estado(r.lock_status, r.aplicado)
+        ws.append([
+            r.creado.strftime('%d/%m/%Y %H:%M'),
+            r.usuario_email or '—',
+            r.nombre_persona or '—',
+            r.mac_address,
+            antes,
+            despues,
+            'Aplicado' if r.aplicado else 'Sin cambios',
+            r.get_tipo_display(),
+        ])
+
+    for col, ancho in zip('ABCDEFGH', (18, 26, 22, 20, 16, 16, 14, 12)):
+        ws.column_dimensions[col].width = ancho
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    response = HttpResponse(
+        buffer.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = 'attachment; filename="sincronizaciones.xlsx"'
+    return response
+
+
+@login_required
+def pincode_export(request):
+    """Exporta a Excel TODOS los Pin Codes generados (respeta la búsqueda activa)."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    query = request.GET.get('q', '').strip()
+    pincodes = PinCodeGenerado.objects.select_related('usuario')
+    if query:
+        pincodes = pincodes.filter(
+            Q(mac_address__icontains=query)
+            | Q(pin_code__icontains=query)
+            | Q(passcode__icontains=query)
+            | Q(usuario_email__icontains=query)
+        )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Pin Codes'
+
+    headers = ['Fecha', 'Mac Address', 'Passcode', 'Pin Code', 'Quién lo generó']
+    ws.append(headers)
+    header_fill = PatternFill('solid', fgColor='F6186A')
+    header_font = Font(bold=True, color='FFFFFF')
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    for p in pincodes:
+        ws.append([
+            p.creado.strftime('%d/%m/%Y %H:%M'),
+            p.mac_address,
+            p.passcode,
+            p.pin_code,
+            p.usuario_email or '—',
+        ])
+
+    for col, ancho in zip('ABCDE', (18, 20, 16, 16, 26)):
+        ws.column_dimensions[col].width = ancho
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    response = HttpResponse(
+        buffer.getvalue(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = 'attachment; filename="pincodes.xlsx"'
+    return response
 
 
 @login_required
@@ -623,13 +909,13 @@ def registro_sync_tv_export(request, mac):
     from openpyxl.styles import Font, PatternFill, Alignment
 
     registros = RegistroSync.objects.filter(mac_address=mac).select_related('usuario')
-    televisor = Televisor.objects.filter(mac_address=mac).first()
 
     wb = Workbook()
     ws = wb.active
     ws.title = 'Sincronizaciones'
 
-    headers = ['Fecha', 'Quién sincronizó', 'Persona', 'Mac Address', 'Estado', 'Resultado', 'Tipo']
+    headers = ['Fecha', 'Quién sincronizó', 'Persona', 'Dirección MAC',
+               'Estado anterior', 'Estado final', 'Resultado', 'Tipo']
     ws.append(headers)
     header_fill = PatternFill('solid', fgColor='F6186A')
     header_font = Font(bold=True, color='FFFFFF')
@@ -639,17 +925,19 @@ def registro_sync_tv_export(request, mac):
         cell.alignment = Alignment(horizontal='center')
 
     for r in registros:
+        antes, despues = _transicion_estado(r.lock_status, r.aplicado)
         ws.append([
             r.creado.strftime('%d/%m/%Y %H:%M'),
             r.usuario_email or '—',
-            r.nombre_persona or (televisor.nombre_persona if televisor else '—'),
+            r.nombre_persona or '—',
             r.mac_address,
-            'Bloqueado' if r.lock_status else 'Desbloqueado',
+            antes,
+            despues,
             'Aplicado' if r.aplicado else 'Sin cambios',
             r.get_tipo_display(),
         ])
 
-    for col, ancho in zip('ABCDEFG', (18, 26, 22, 20, 14, 14, 12)):
+    for col, ancho in zip('ABCDEFGH', (18, 26, 22, 20, 16, 16, 14, 12)):
         ws.column_dimensions[col].width = ancho
 
     buffer = io.BytesIO()
@@ -714,94 +1002,65 @@ def registro_sync_tv_pincodes_export(request, mac):
 
 @login_required
 def televisor_historico(request, pk):
-    """Lista las facturas (cuotas) del televisor y permite agregar una nueva."""
+    """Lista el histórico de bloqueos del televisor y permite registrar uno nuevo."""
     televisor = get_object_or_404(Televisor, pk=pk)
 
     if request.method == 'POST':
-        form = FacturaForm(request.POST)
+        form = BloqueoForm(request.POST)
         if form.is_valid():
-            factura = form.save(commit=False)
-            factura.televisor = televisor
-            factura.save()
-            messages.success(request, 'Factura agregada correctamente.')
+            bloqueo = form.save(commit=False)
+            bloqueo.televisor = televisor
+            bloqueo.mac_address = televisor.mac_address
+            bloqueo.serial_number = televisor.serial_number
+            bloqueo.save()
+            estado = 'Bloqueado' if bloqueo.estado else 'Desbloqueado'
+            messages.success(request, f'Estado registrado: {estado}.')
             return redirect('televisor_historico', pk=televisor.pk)
     else:
-        form = FacturaForm()
+        form = BloqueoForm()
 
-    facturas = televisor.facturas.all()
+    bloqueos = televisor.bloqueos.all()
     return render(request, 'whaletv/televisor_historico.html', {
         'televisor': televisor,
-        'facturas': facturas,
+        'bloqueos': bloqueos,
         'form': form,
     })
 
 
 @login_required
-def factura_toggle(request, pk):
-    """Marca/desmarca una factura como pagada (recalcula el bloqueo del TV)."""
-    factura = get_object_or_404(Factura, pk=pk)
+def bloqueo_delete(request, pk):
+    """Elimina un registro de bloqueo (recalcula el estado del TV)."""
+    bloqueo = get_object_or_404(Bloqueo, pk=pk)
+    tv_id = bloqueo.televisor_id
     if request.method == 'POST':
-        factura.pagada = not factura.pagada
-        factura.save()
-        estado = 'pagada' if factura.pagada else 'pendiente'
-        messages.success(request, f'Factura {factura.numero_factura} marcada como {estado}.')
-    return redirect('televisor_historico', pk=factura.televisor_id)
-
-
-@login_required
-def factura_update(request, pk):
-    """Edita una factura (solo los campos no calculados)."""
-    factura = get_object_or_404(Factura, pk=pk)
-
-    if request.method == 'POST':
-        form = FacturaForm(request.POST, instance=factura)
-        if form.is_valid():
-            form.save()
-            messages.success(request, 'Factura actualizada correctamente.')
-            return redirect('televisor_historico', pk=factura.televisor_id)
-    else:
-        form = FacturaForm(instance=factura)
-
-    return render(request, 'whaletv/factura_form.html', {
-        'form': form,
-        'factura': factura,
-        'televisor': factura.televisor,
-    })
-
-
-@login_required
-def factura_delete(request, pk):
-    """Elimina una factura."""
-    factura = get_object_or_404(Factura, pk=pk)
-    tv_id = factura.televisor_id
-    if request.method == 'POST':
-        factura.delete()
-        messages.success(request, 'Factura eliminada.')
+        bloqueo.delete()
+        messages.success(request, 'Registro de bloqueo eliminado.')
     return redirect('televisor_historico', pk=tv_id)
 
 
 # ---------------------------------------------------------------------------
-# Importación masiva de facturas (CSV / Excel)
+# Importación masiva de bloqueos (CSV / Excel)
 # ---------------------------------------------------------------------------
 
 # Sinónimos aceptados para cada columna (encabezados flexibles).
-_COLUMNAS_FACTURA = {
+_COLUMNAS_BLOQUEO = {
     'mac_address': {'mac_address', 'mac', 'mac address'},
-    'numero_factura': {'numero_factura', 'numero factura', 'n_factura', 'factura', 'num_factura'},
-    'numero_cuota': {'numero_cuota', 'numero cuota', 'cuota', 'num_cuota', 'n_cuota'},
-    'fecha_vencimiento': {'fecha_vencimiento', 'fecha vencimiento', 'fecha', 'vencimiento'},
-    'pagada': {'pagada', 'pago', 'pagado'},
+    'serial_number': {'serial_number', 'serial', 'serial number', 'sn'},
+    'estado': {'estado', 'status', 'lock', 'lock_status', 'bloqueo', 'bloqueado'},
 }
 
 _COLUMNAS_TV = {
     'mac_address': {'mac_address', 'mac', 'mac address'},
     'serial_number': {'serial_number', 'serial', 'serial number', 'sn'},
-    'nombre_persona': {'nombre_persona', 'nombre', 'persona', 'cliente', 'nombre persona'},
-    'correo_persona': {'correo_persona', 'correo', 'email', 'e-mail', 'correo persona'},
-    'numero_cuotas': {'numero_cuotas', 'cuotas', 'numero cuotas', 'n_cuotas', 'num_cuotas'},
+    'numero_credito': {'numero_credito', 'numero credito', 'número crédito', 'numero de credito',
+                       'credito', 'crédito', 'n_credito', 'num_credito', 'nro_credito'},
 }
 
-_VERDADERO = {'si', 'sí', 'true', '1', 'x', 'pagada', 'pagado', 'yes', 'y', 'paid', 'verdadero'}
+# Valores aceptados en la columna 'estado' del Excel de bloqueos.
+_ESTADO_BLOQUEADO = {'bloqueado', 'bloqueo', 'bloquear', 'lock', 'locked', 'si', 'sí',
+                     'true', '1', 'x', 'yes', 'y'}
+_ESTADO_DESBLOQUEADO = {'desbloqueado', 'desbloqueo', 'desbloquear', 'unlock', 'unlocked',
+                        'no', 'false', '0', 'n'}
 
 
 def _mapear_columnas(headers, columnas):
@@ -833,34 +1092,30 @@ def _texto(valor):
     return '' if texto.lower() in ('nan', 'nat', 'none') else texto
 
 
-def _parse_fecha(valor):
-    if valor is None:
-        return None
-    if isinstance(valor, (datetime.datetime, datetime.date)):
-        return valor.date() if isinstance(valor, datetime.datetime) else valor
-    texto = str(valor).strip()
-    if not texto or texto.lower() in ('nan', 'nat'):
-        return None
-    texto = texto.split(' ')[0]  # por si viene con hora
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y', '%Y/%m/%d', '%d-%m-%Y'):
-        try:
-            return datetime.datetime.strptime(texto, fmt).date()
-        except ValueError:
-            continue
+def _parse_estado_bloqueo(valor):
+    """Interpreta la celda 'estado' del Excel de bloqueos.
+
+    Devuelve True (bloqueado), False (desbloqueado) o None si no se reconoce.
+    """
+    texto = _texto(valor).lower()
+    if texto in _ESTADO_BLOQUEADO:
+        return True
+    if texto in _ESTADO_DESBLOQUEADO:
+        return False
     return None
 
 
-def _parse_bool(valor):
-    if valor is None:
-        return False
-    return str(valor).strip().lower() in _VERDADERO
+def _solo_digitos(valor):
+    """Deja solo los dígitos de una celda (para el número de crédito).
 
-
-def _parse_entero(valor):
-    try:
-        return int(float(str(valor).strip()))
-    except (ValueError, TypeError):
-        return None
+    Excel a veces guarda números como '123.0'; quitamos ese sufijo antes de
+    filtrar. Devuelve '' si no hay dígitos. Trunca a 60 por seguridad.
+    """
+    texto = _texto(valor)
+    if texto.endswith('.0'):
+        texto = texto[:-2]
+    digitos = ''.join(c for c in texto if c.isdigit())
+    return digitos[:60]
 
 
 @login_required
@@ -896,22 +1151,15 @@ def televisor_import(request):
             datos = {}
             if 'serial_number' in mapa:
                 datos['serial_number'] = _texto(fila[mapa['serial_number']])
-            if 'nombre_persona' in mapa:
-                datos['nombre_persona'] = _texto(fila[mapa['nombre_persona']])
-            if 'correo_persona' in mapa:
-                datos['correo_persona'] = _texto(fila[mapa['correo_persona']])
-            if 'numero_cuotas' in mapa:
-                cuotas = _parse_entero(fila[mapa['numero_cuotas']])
-                datos['numero_cuotas'] = cuotas if cuotas is not None else 0
+            if 'numero_credito' in mapa:
+                datos['numero_credito'] = _solo_digitos(fila[mapa['numero_credito']])
 
             tv = Televisor.objects.filter(mac_address__iexact=mac).first()
             if tv is None:
                 Televisor.objects.create(
                     mac_address=mac,
                     serial_number=datos.get('serial_number', ''),
-                    nombre_persona=datos.get('nombre_persona', ''),
-                    correo_persona=datos.get('correo_persona', ''),
-                    numero_cuotas=datos.get('numero_cuotas', 0),
+                    numero_credito=datos.get('numero_credito', ''),
                 )
                 creados += 1
             else:
@@ -951,10 +1199,14 @@ def televisor_plantilla(request):
     wb = Workbook()
     ws = wb.active
     ws.title = 'Televisores'
-    ws.append(['mac_address', 'serial_number', 'nombre_persona', 'correo_persona', 'numero_cuotas'])
-    ws.append(['B4:04:29:7E:3A:AA', 'B4:04:29:7E:3A:AA', 'Juan Pérez', 'juan@correo.com', 10])
-    ws.append(['B4:04:29:7E:3A:BB', 'B4:04:29:7E:3A:BB', 'Ana Gómez', 'ana@correo.com', 12])
-    for col, ancho in zip('ABCDE', (22, 22, 18, 22, 14)):
+    ws.append(['mac_address', 'serial_number', 'numero_credito'])
+    ws.append(['B4:04:29:7E:3A:AA', 'B4:04:29:7E:3A:AA', '1234567890'])
+    ws.append(['B4:04:29:7E:3A:BB', 'B4:04:29:7E:3A:BB', '9876543210'])
+    # El número de crédito es texto (puede tener hasta 60 dígitos): forzamos el
+    # formato de toda la columna a texto para que Excel no lo redondee.
+    for fila in ws['C']:
+        fila.number_format = '@'
+    for col, ancho in zip('ABC', (22, 22, 24)):
         ws.column_dimensions[col].width = ancho
 
     buffer = io.BytesIO()
@@ -970,8 +1222,12 @@ def televisor_plantilla(request):
 
 
 @login_required
-def factura_import(request):
-    """Importa facturas masivamente desde CSV/Excel (crea o actualiza)."""
+def bloqueo_import(request):
+    """Importa bloqueos desde Excel/CSV (Serial, Mac Address, estado).
+
+    Cada fila fija el estado (bloqueado/desbloqueado) del televisor de esa MAC.
+    Si el TV no existe se crea. Si el estado cambia, se registra un Bloqueo.
+    """
     resultado = None
     cambios = []
 
@@ -980,104 +1236,121 @@ def factura_import(request):
             df = _leer_dataframe(request.FILES['archivo'])
         except Exception as e:  # noqa: BLE001
             messages.error(request, f'No pude leer el archivo: {e}')
-            return redirect('factura_import')
+            return redirect('bloqueo_import')
 
-        mapa = _mapear_columnas(df.columns, _COLUMNAS_FACTURA)
-        faltan = [c for c in ('mac_address', 'numero_factura', 'numero_cuota', 'fecha_vencimiento')
-                  if c not in mapa]
+        mapa = _mapear_columnas(df.columns, _COLUMNAS_BLOQUEO)
+        faltan = [c for c in ('mac_address', 'estado') if c not in mapa]
         if faltan:
             messages.error(
                 request,
                 'Faltan columnas en el archivo: ' + ', '.join(faltan)
                 + '. Encabezados encontrados: ' + ', '.join(str(c) for c in df.columns),
             )
-            return redirect('factura_import')
+            return redirect('bloqueo_import')
 
-        creadas, actualizadas, errores = 0, 0, []
-        estado_antes = {}  # tv.pk -> lock_status antes de importar (para detectar cambios)
+        from django.db import transaction
 
+        errores = []
+
+        # 1) Parsear y validar todas las filas (sin tocar la base de datos).
+        #    Dedup por MAC: la última fila de cada MAC manda; conserva el
+        #    último serial no vacío.
+        orden = []        # MAC (mayúsculas) en orden de primera aparición
+        deseado = {}      # MAC_up -> {'mac', 'serial', 'estado'}
         for i, fila in df.iterrows():
             n = i + 2  # +2: fila 1 es encabezado, índice base 0
-            mac = str(fila[mapa['mac_address']]).strip()
-            num_factura = str(fila[mapa['numero_factura']]).strip()
-            cuota = _parse_entero(fila[mapa['numero_cuota']])
-            fecha = _parse_fecha(fila[mapa['fecha_vencimiento']])
-            pagada = _parse_bool(fila[mapa['pagada']]) if 'pagada' in mapa else False
+            mac = _texto(fila[mapa['mac_address']])
+            serial = _texto(fila[mapa['serial_number']]) if 'serial_number' in mapa else ''
+            estado = _parse_estado_bloqueo(fila[mapa['estado']])
 
-            if not mac or mac.lower() == 'nan':
+            if not mac:
                 errores.append(f'Fila {n}: falta MAC.')
                 continue
-            if not num_factura or num_factura.lower() == 'nan':
-                errores.append(f'Fila {n}: falta número de factura.')
-                continue
-            if cuota is None:
-                errores.append(f'Fila {n}: número de cuota inválido.')
-                continue
-            if fecha is None:
-                errores.append(f'Fila {n}: fecha de vencimiento inválida.')
+            if estado is None:
+                errores.append(f'Fila {n}: estado inválido (usa "bloqueado" o "desbloqueado").')
                 continue
 
-            tv = Televisor.objects.filter(mac_address__iexact=mac).first()
-            if tv is None:
-                errores.append(f'Fila {n}: no existe un televisor con MAC {mac}.')
-                continue
+            key = mac.upper()
+            if key not in deseado:
+                orden.append(key)
+            prev = deseado.get(key, {})
+            deseado[key] = {
+                'mac': mac,
+                'serial': serial or prev.get('serial', ''),
+                'estado': estado,
+            }
 
-            # Guardamos el estado de bloqueo ANTES de tocar sus facturas.
-            if tv.pk not in estado_antes:
-                estado_antes[tv.pk] = tv.lock_status
+        # 2) UNA sola consulta para los televisores que ya existen.
+        existentes = {}
+        if orden:
+            macs = [deseado[k]['mac'] for k in orden]
+            for tv in Televisor.objects.filter(mac_address__in=macs):
+                existentes[tv.mac_address.upper()] = tv
 
-            _, creada = Factura.objects.update_or_create(
-                televisor=tv,
-                numero_factura=num_factura,
-                defaults={
-                    'numero_cuota': cuota,
-                    'fecha_vencimiento': fecha,
-                    'pagada': pagada,
-                },
-            )
-            if creada:
-                creadas += 1
-            else:
-                actualizadas += 1
+        cambiados = []
+        with transaction.atomic():
+            # 3) Crear de golpe los televisores nuevos (1 INSERT múltiple).
+            nuevos = [
+                Televisor(mac_address=deseado[k]['mac'], serial_number=deseado[k]['serial'])
+                for k in orden if k not in existentes
+            ]
+            if nuevos:
+                Televisor.objects.bulk_create(nuevos)
+                for tv in nuevos:
+                    existentes[tv.mac_address.upper()] = tv
+            creados = len(nuevos)
+            actualizados = len(orden) - creados
+
+            # 4) Calcular qué cambia y preparar bloqueos + updates en bloque.
+            #    lock_status ya refleja el estado del último bloqueo, así que
+            #    comparamos contra él (sin consultar bloqueos por TV).
+            bloqueos_nuevos = []
+            tvs_update = []
+            for k in orden:
+                d = deseado[k]
+                tv = existentes[k]
+                serial_cambia = bool(d['serial']) and tv.serial_number != d['serial']
+                if serial_cambia:
+                    tv.serial_number = d['serial']
+                if d['estado'] != tv.lock_status:
+                    antes = tv.lock_status  # estado del que venía
+                    bloqueos_nuevos.append(Bloqueo(
+                        televisor=tv,
+                        mac_address=tv.mac_address,
+                        serial_number=d['serial'] or tv.serial_number,
+                        estado=d['estado'],
+                    ))
+                    tv.lock_status = d['estado']
+                    tvs_update.append(tv)
+                    cambiados.append((tv, antes))
+                elif serial_cambia:
+                    tvs_update.append(tv)
+
+            if bloqueos_nuevos:
+                Bloqueo.objects.bulk_create(bloqueos_nuevos)
+            if tvs_update:
+                Televisor.objects.bulk_update(tvs_update, ['lock_status', 'serial_number'])
 
         resultado = {
-            'creadas': creadas,
-            'actualizadas': actualizadas,
+            'creados': creados,
+            'actualizados': actualizados,
             'errores': errores,
-            'total': creadas + actualizadas,
+            'total': creados + actualizados,
         }
-        if not errores:
-            messages.success(
-                request,
-                f'Importación lista: {creadas} creadas, {actualizadas} actualizadas.',
-            )
-        else:
-            messages.warning(
-                request,
-                f'Importación con avisos: {creadas} creadas, {actualizadas} actualizadas, '
-                f'{len(errores)} con error.',
-            )
-
-        # Detecta televisores cuyo estado bloqueado/desbloqueado cambió tras la importación.
-        cambiados = []
-        for pk, antes in estado_antes.items():
-            tv = Televisor.objects.get(pk=pk)
-            if tv.lock_status != antes:
-                cambiados.append(tv)
 
         # Guardamos los IDs en sesión para poder sincronizar solo esos televisores.
-        request.session['sync_cambios_pks'] = [tv.pk for tv in cambiados]
+        request.session['sync_cambios_pks'] = [tv.pk for tv, _ in cambiados]
 
         cambios = [{
             'mac': tv.mac_address,
             'serial': tv.serial_number,
+            'numero_credito': tv.numero_credito,
             'fecha': tv.fecha_sincronizar,
-            'lock': tv.lock_status,
-            'cuotas_pagadas': tv.cuotas_pagadas,
-            'numero_cuotas': tv.numero_cuotas,
-        } for tv in cambiados]
+            'antes': antes,            # estado anterior
+            'despues': tv.lock_status,  # estado nuevo
+        } for tv, antes in cambiados]
 
-    return render(request, 'whaletv/factura_import.html', {
+    return render(request, 'whaletv/bloqueo_import.html', {
         'resultado': resultado,
         'cambios': cambios,
         'n_cambios': len(cambios),
@@ -1085,20 +1358,19 @@ def factura_import(request):
 
 
 @login_required
-def factura_plantilla(request):
-    """Descarga una plantilla Excel (.xlsx) de ejemplo para importar facturas."""
+def bloqueo_plantilla(request):
+    """Descarga una plantilla Excel (.xlsx) de ejemplo para importar bloqueos."""
     import io
 
     from openpyxl import Workbook
 
     wb = Workbook()
     ws = wb.active
-    ws.title = 'Facturas'
-    ws.append(['mac_address', 'numero_factura', 'numero_cuota', 'fecha_vencimiento', 'pagada'])
-    ws.append(['B4:04:29:7E:3A:EE', 'F-2026-007', 7, '2026-07-05', 'no'])
-    ws.append(['B4:04:29:7E:3A:EE', 'F-2026-006', 6, '2026-06-05', 'si'])
-    # Anchos cómodos para leer.
-    for col, ancho in zip('ABCDE', (20, 16, 14, 18, 10)):
+    ws.title = 'Bloqueos'
+    ws.append(['serial_number', 'mac_address', 'estado'])
+    ws.append(['B4:04:29:7E:3A:EE', 'B4:04:29:7E:3A:EE', 'bloqueado'])
+    ws.append(['B4:04:29:7E:3A:FF', 'B4:04:29:7E:3A:FF', 'desbloqueado'])
+    for col, ancho in zip('ABC', (22, 22, 16)):
         ws.column_dimensions[col].width = ancho
 
     buffer = io.BytesIO()
@@ -1109,5 +1381,5 @@ def factura_plantilla(request):
         buffer.getvalue(),
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
-    response['Content-Disposition'] = 'attachment; filename="plantilla_facturas.xlsx"'
+    response['Content-Disposition'] = 'attachment; filename="plantilla_bloqueos.xlsx"'
     return response

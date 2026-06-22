@@ -4,17 +4,16 @@
 {% block nav_tv %}navlink-active{% endblock %}
 {% block breadcrumb %}
     <a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> /
-    <a href="{% url 'registro_sync_tv' televisor.mac_address %}" class="text-whale">{{ televisor.mac_address }}</a> / Facturas
+    <a href="{% url 'registro_sync_tv' televisor.mac_address %}" class="text-whale">{{ televisor.mac_address }}</a> / Bloqueos
 {% endblock %}
 
 {% block content %}
 <div class="card mb-5">
     <div class="flex items-start justify-between flex-wrap gap-3">
         <div>
-            <h2 class="text-xl font-bold text-gray-800 mb-1">Histórico de facturas</h2>
+            <h2 class="text-xl font-bold text-gray-800 mb-1">Histórico de bloqueos</h2>
             <div class="text-sm text-gray-500">
-                <b class="text-gray-800">{{ televisor.mac_address }}</b> · {{ televisor.nombre_persona }} ·
-                Cuotas pagadas: <b class="text-gray-800">{{ televisor.cuotas_pagadas }}/{{ televisor.numero_cuotas }}</b> ·
+                <b class="text-gray-800">{{ televisor.mac_address }}</b> · Estado actual:
                 {% if televisor.lock_status %}
                     <span class="pill pill-lock">Bloqueado</span>
                 {% else %}
@@ -27,25 +26,14 @@
 </div>
 
 <div class="card mb-5">
-    <h3 class="text-base font-bold text-gray-800 mb-4">Agregar factura</h3>
-    <form method="post" class="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+    <h3 class="text-base font-bold text-gray-800 mb-4">Registrar estado</h3>
+    <form method="post" class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         {% csrf_token %}
         <div>
-            <label class="lbl">N° Factura</label>
-            {{ form.numero_factura }}
+            <label class="lbl">Estado</label>
+            {{ form.estado }}
         </div>
-        <div>
-            <label class="lbl">N° Cuota</label>
-            {{ form.numero_cuota }}
-        </div>
-        <div>
-            <label class="lbl">Vencimiento</label>
-            {{ form.fecha_vencimiento }}
-        </div>
-        <label class="flex items-center gap-2 text-sm font-medium pb-2">
-            {{ form.pagada }} Pagada
-        </label>
-        <button type="submit" class="btn btn-primary">Agregar</button>
+        <button type="submit" class="btn btn-primary">Registrar</button>
     </form>
     {% if form.errors %}
         <div class="msg msg-error mt-3">{{ form.errors }}</div>
@@ -53,62 +41,41 @@
 </div>
 
 <div class="card !p-0 overflow-hidden mb-5">
-    {% if facturas %}
+    {% if bloqueos %}
     <table class="w-full">
         <thead>
             <tr>
-                <th class="th">Cuota</th>
-                <th class="th"># Factura</th>
-                <th class="th">Vencimiento</th>
+                <th class="th">Fecha</th>
                 <th class="th">Estado</th>
-                <th class="th">Pago</th>
+                <th class="th">Número de serie</th>
                 <th class="th">Acciones</th>
             </tr>
         </thead>
         <tbody>
-            {% for f in facturas %}
+            {% for b in bloqueos %}
             <tr class="hover:bg-gray-50">
-                <td class="td">{{ f.numero_cuota }}{% if televisor.numero_cuotas %}/{{ televisor.numero_cuotas }}{% endif %}</td>
-                <td class="td font-medium">{{ f.numero_factura }}</td>
-                <td class="td">{{ f.fecha_vencimiento|date:"d/m/Y" }}</td>
+                <td class="td">{{ b.created_at|date:"d/m/Y H:i" }}</td>
                 <td class="td">
-                    {% if f.vencida %}
-                        <span class="pill pill-due">Vencida</span>
+                    {% if b.estado %}
+                        <span class="pill pill-lock">Bloqueado</span>
                     {% else %}
-                        <span class="pill pill-ok">Al día</span>
+                        <span class="pill pill-unlock">Desbloqueado</span>
                     {% endif %}
                 </td>
+                <td class="td">{{ b.serial_number|default:"—" }}</td>
                 <td class="td">
-                    {% if f.pagada %}
-                        <span class="pill pill-unlock">Pagada</span>
-                    {% else %}
-                        <span class="pill pill-lock">Pendiente</span>
-                    {% endif %}
-                </td>
-                <td class="td">
-                    <div class="flex gap-1.5 flex-wrap">
-                        <a href="{% url 'factura_update' f.pk %}" class="btn btn-sm btn-edit">Editar</a>
-                        <form method="post" action="{% url 'factura_toggle' f.pk %}">
-                            {% csrf_token %}
-                            {% if f.pagada %}
-                                <button type="submit" class="btn btn-sm btn-unpay">Marcar pendiente</button>
-                            {% else %}
-                                <button type="submit" class="btn btn-sm btn-pay">Marcar pagada</button>
-                            {% endif %}
-                        </form>
-                        <form method="post" action="{% url 'factura_delete' f.pk %}"
-                              onsubmit="return confirm('¿Eliminar esta factura?');">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-del">Eliminar</button>
-                        </form>
-                    </div>
+                    <form method="post" action="{% url 'bloqueo_delete' b.pk %}"
+                          onsubmit="return confirm('¿Eliminar este registro de bloqueo?');">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-del">Eliminar</button>
+                    </form>
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     {% else %}
-    <div class="text-center text-gray-400 py-10">Este televisor aún no tiene facturas. Agrega la primera arriba.</div>
+    <div class="text-center text-gray-400 py-10">Este televisor aún no tiene registros de bloqueo. Registra el primero arriba.</div>
     {% endif %}
 </div>
 

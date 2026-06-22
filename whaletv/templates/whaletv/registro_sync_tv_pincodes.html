@@ -1,18 +1,18 @@
 {% extends 'whaletv/base.html' %}
 
-{% block title %}Pin Codes · {{ mac }} · Locking System{% endblock %}
+{% block title %}Códigos Pin · {{ mac }} · Locking System{% endblock %}
 {% block nav_tv %}navlink-active{% endblock %}
 {% block breadcrumb %}
     <a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> /
-    <a href="{% url 'registro_sync_tv' mac %}" class="text-whale">{{ mac }}</a> / Pin Codes
+    <a href="{% url 'registro_sync_tv' mac %}" class="text-whale">{{ mac }}</a> / Códigos Pin
 {% endblock %}
 
 {% block content %}
 <div class="card mb-5">
     <div class="flex items-start justify-between flex-wrap gap-3">
         <div>
-            <h2 class="text-xl font-bold text-gray-800">Pin Codes de {{ mac }}</h2>
-            <p class="text-sm text-gray-500">{{ total }} Pin Code{{ total|pluralize }} generado{{ total|pluralize }}.</p>
+            <h2 class="text-xl font-bold text-gray-800">Códigos Pin de {{ mac }}</h2>
+            <p class="text-sm text-gray-500">{{ total }} Código{{ total|pluralize }} Pin generado{{ total|pluralize }}.</p>
         </div>
         <div class="flex gap-2 flex-wrap">
             <a href="{% url 'registro_sync_tv_pincodes_export' mac %}" class="btn btn-ghost">⬇ Exportar Excel</a>
@@ -27,8 +27,8 @@
         <thead>
             <tr>
                 <th class="th">Fecha</th>
-                <th class="th">Passcode</th>
-                <th class="th">Pin Code</th>
+                <th class="th">Código de Acceso</th>
+                <th class="th">Código Pin</th>
                 <th class="th">Quién lo generó</th>
             </tr>
         </thead>
@@ -46,7 +46,7 @@
 </div>
 {% else %}
 <div class="card text-center text-gray-400 py-12">
-    Este TV aún no tiene Pin Codes generados.
+    Este TV aún no tiene Códigos Pin generados.
 </div>
 {% endif %}
 {% endblock %}

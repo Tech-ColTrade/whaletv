@@ -207,4 +207,10 @@ WHALETV_PORTAL = {
     'PASSWORD': os.environ.get('WHALETV_PORTAL_PASSWORD', ''),
     'HEADLESS': os.environ.get('WHALETV_PORTAL_HEADLESS', 'true').lower() == 'true',
     'TIMEOUT': int(os.environ.get('WHALETV_PORTAL_TIMEOUT', '30')),
+    # Navegadores en paralelo en la sincronización masiva. Más = más rápido,
+    # pero consume más CPU/RAM (cada uno es un Chrome headless).
+    'MAX_WORKERS': int(os.environ.get('WHALETV_PORTAL_MAX_WORKERS', '6')),
+    # Si es True, tras guardar recarga la página para reconfirmar (más lento).
+    # Por defecto False: el botón Edit ya reaparece como confirmación de guardado.
+    'CONFIRMAR_RECARGA': os.environ.get('WHALETV_PORTAL_CONFIRMAR_RECARGA', 'false').lower() == 'true',
 }

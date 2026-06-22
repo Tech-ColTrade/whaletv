@@ -1,21 +1,36 @@
+import datetime
+
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
 
+# Días que se suman/restan a la fecha de hoy al sincronizar con el portal.
+DIAS_DESFASE = 30
+
+# Un número de crédito: solo dígitos, hasta 60 (se guarda como texto porque
+# 60 dígitos no caben en ningún entero de base de datos).
+validar_numero_credito = RegexValidator(
+    r'^\d{1,60}$',
+    'El número de crédito debe contener solo dígitos (máximo 60).',
+)
+
 
 class Televisor(models.Model):
-    """Televisor WhaleTV: una compra a cuotas, con varias facturas."""
+    """Televisor WhaleTV: se bloquea/desbloquea según su último Bloqueo."""
 
-    mac_address = models.CharField('Mac Address', max_length=50)
-    serial_number = models.CharField('Serial Number', max_length=50)
+    mac_address = models.CharField('Dirección MAC', max_length=50)
+    serial_number = models.CharField('Número de serie', max_length=50)
+    numero_credito = models.CharField(
+        'Número de crédito',
+        max_length=60,
+        blank=True,
+        default='',
+        validators=[validar_numero_credito],
+    )
 
-    numero_cuotas = models.PositiveIntegerField('Número de cuotas', default=0)
-
-    # lock_status se calcula a partir de las facturas (ver calcular_estado()).
+    # lock_status se calcula a partir de los bloqueos (ver calcular_estado()).
     lock_status = models.BooleanField('Lock Status', default=False)
-
-    correo_persona = models.EmailField('Correo persona', max_length=254)
-    nombre_persona = models.CharField('Nombre persona', max_length=150)
 
     created_at = models.DateTimeField('Fecha de registro', auto_now_add=True)
 
@@ -24,26 +39,22 @@ class Televisor(models.Model):
         verbose_name_plural = 'televisores'
 
     def __str__(self):
-        return f'{self.nombre_persona} - {self.mac_address}'
+        return self.mac_address
 
     # ------------------------------------------------------------------
-    # Estado derivado de las facturas
+    # Estado derivado de los bloqueos
     # ------------------------------------------------------------------
     def calcular_estado(self):
-        """lock_status = hay alguna factura vencida (fecha < hoy) sin pagar.
+        """lock_status = estado del último bloqueo registrado para el TV.
 
-        Aunque el cliente haya pagado cuotas posteriores, si quedó una
-        cuota anterior vencida sin pagar, el TV sigue bloqueado.
         Devuelve True si lock_status cambió.
         """
         if not self.pk:
             return False
-        hoy = timezone.localdate()
-        vencida = self.facturas.filter(
-            pagada=False, fecha_vencimiento__lt=hoy
-        ).exists()
-        cambio = self.lock_status != vencida
-        self.lock_status = vencida
+        ultimo = self.bloqueos.first()  # ordenados por -created_at
+        nuevo = bool(ultimo.estado) if ultimo else False
+        cambio = self.lock_status != nuevo
+        self.lock_status = nuevo
         return cambio
 
     def actualizar_lock(self):
@@ -62,64 +73,47 @@ class Televisor(models.Model):
             tv.actualizar_lock()
 
     @property
-    def factura_pendiente(self):
-        """La factura sin pagar más antigua (la deuda a cobrar)."""
-        return self.facturas.filter(pagada=False).order_by('fecha_vencimiento').first()
-
-    @property
     def fecha_sincronizar(self):
         """Fecha que se empuja al portal (Next Installment Date).
 
-        Si hay cuotas sin pagar, la de la cuota pendiente más antigua (la
-        próxima a cobrar). Si ya están TODAS pagadas, la de la última cuota
-        registrada (la de vencimiento más reciente).
+        - Bloqueado    → hoy − 30 días (fecha vencida → el portal lo bloquea).
+        - Desbloqueado → hoy + 30 días (fecha futura → el portal lo deja libre).
         """
-        pendiente = self.factura_pendiente
-        if pendiente:
-            return pendiente.fecha_vencimiento
-        ultima = self.facturas.order_by('fecha_vencimiento').last()
-        return ultima.fecha_vencimiento if ultima else None
+        hoy = timezone.localdate()
+        dias = datetime.timedelta(days=DIAS_DESFASE)
+        return hoy - dias if self.lock_status else hoy + dias
 
     @property
-    def due_status(self):
-        """Vencida = igual que bloqueado (hay cuota vencida sin pagar)."""
-        return self.lock_status
-
-    @property
-    def cuotas_pagadas(self):
-        return self.facturas.filter(pagada=True).count()
-
-    @property
-    def total_facturas(self):
-        return self.facturas.count()
+    def ultimo_bloqueo(self):
+        """El bloqueo más reciente del televisor (define su estado actual)."""
+        return self.bloqueos.first()
 
 
-class Factura(models.Model):
-    """Cada cuota del televisor es una factura con su fecha de vencimiento."""
+class Bloqueo(models.Model):
+    """Estado de bloqueo de un televisor, cargado desde el Excel de bloqueos.
+
+    Cada importación registra el estado (bloqueado/desbloqueado) de un TV.
+    El estado actual del televisor (lock_status) es el del último bloqueo.
+    """
 
     televisor = models.ForeignKey(
         Televisor,
-        related_name='facturas',
+        related_name='bloqueos',
         on_delete=models.CASCADE,
         verbose_name='televisor',
     )
-    numero_factura = models.CharField('Número de factura', max_length=50)
-    numero_cuota = models.PositiveIntegerField('Número de cuota', default=1)
-    fecha_vencimiento = models.DateField('Fecha de vencimiento')
-    pagada = models.BooleanField('Pagada', default=False)
+    serial_number = models.CharField('Serial Number', max_length=50, blank=True, default='')
+    mac_address = models.CharField('Mac Address', max_length=50)
+    estado = models.BooleanField('Bloqueado', default=False)
     created_at = models.DateTimeField('Fecha de registro', auto_now_add=True)
 
     class Meta:
-        verbose_name = 'factura'
-        verbose_name_plural = 'facturas'
-        ordering = ['numero_cuota', 'fecha_vencimiento']
+        verbose_name = 'bloqueo'
+        verbose_name_plural = 'bloqueos'
+        ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.numero_factura} (cuota {self.numero_cuota})'
-
-    @property
-    def vencida(self):
-        return (not self.pagada) and self.fecha_vencimiento < timezone.localdate()
+        return f'{self.mac_address} · {"Bloqueado" if self.estado else "Desbloqueado"}'
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
@@ -143,6 +137,10 @@ class SyncJob(models.Model):
     ]
     # Estados que cuentan como "todavía trabajando" (bloquean lanzar otro job).
     ACTIVOS = ('pendiente', 'corriendo')
+
+    TIPOS = [('sincronizacion', 'Sincronización'), ('validacion', 'Validación')]
+    tipo = models.CharField(max_length=14, choices=TIPOS, default='sincronizacion')
+
     estado = models.CharField(max_length=12, choices=ESTADOS, default='pendiente')
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -183,6 +181,11 @@ class SyncJobItem(models.Model):
     mac = models.CharField(max_length=50)
     estado = models.CharField(max_length=10, choices=ESTADOS, default='pendiente')
     aplicado = models.BooleanField(default=False)
+    # Para trabajos de validación (dry-run): estado leído en el portal, estado
+    # local de la app, y si coinciden.
+    remoto_bloqueado = models.BooleanField(null=True, blank=True)
+    local_bloqueado = models.BooleanField(null=True, blank=True)
+    coincide = models.BooleanField(null=True, blank=True)
     mensaje = models.TextField(blank=True, default='')
 
     class Meta:
@@ -237,7 +240,6 @@ class RegistroSync(models.Model):
             usuario=usuario if getattr(usuario, 'pk', None) else None,
             usuario_email=getattr(usuario, 'email', '') or '',
             televisor=televisor,
-            nombre_persona=televisor.nombre_persona,
             mac_address=televisor.mac_address,
             lock_status=bool(televisor.lock_status),
             aplicado=bool(aplicado),

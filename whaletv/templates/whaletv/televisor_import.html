@@ -1,8 +1,8 @@
 {% extends 'whaletv/base.html' %}
 
-{% block title %}Importar compras · Locking System{% endblock %}
+{% block title %}Enrolar Televisores · Locking System{% endblock %}
 {% block nav_tv %}navlink-active{% endblock %}
-{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / Importar compras{% endblock %}
+{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / Enrolar Televisores{% endblock %}
 
 {% block content %}
 {% if resultado %}
@@ -22,17 +22,15 @@
 {% endif %}
 
 <div class="card max-w-2xl">
-    <h2 class="text-xl font-bold text-gray-800 mb-2">Importar compras (televisores)</h2>
+    <h2 class="text-xl font-bold text-gray-800 mb-2">Enrolar Televisores</h2>
     <p class="text-sm text-gray-600 mb-4">Sube un archivo <b>Excel (.xlsx)</b> (también acepta CSV). Si el televisor ya existe
-       (mismo <b>MAC</b>) se <b>actualiza</b>; si no, se <b>crea</b>. Las facturas se importan aparte.</p>
+       (mismo <b>MAC</b>) se <b>actualiza</b>; si no, se <b>crea</b>. Los bloqueos se importan aparte.</p>
 
     <table class="w-full text-sm border border-gray-200 mb-4">
         <tr class="bg-gray-50"><th class="border border-gray-200 px-3 py-2 text-left">Columna</th><th class="border border-gray-200 px-3 py-2 text-left">Ejemplo</th><th class="border border-gray-200 px-3 py-2 text-left">Obligatoria</th></tr>
         <tr><td class="border border-gray-200 px-3 py-2">mac_address</td><td class="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:AA</td><td class="border border-gray-200 px-3 py-2">Sí (identifica la compra)</td></tr>
         <tr><td class="border border-gray-200 px-3 py-2">serial_number</td><td class="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:AA</td><td class="border border-gray-200 px-3 py-2">No</td></tr>
-        <tr><td class="border border-gray-200 px-3 py-2">nombre_persona</td><td class="border border-gray-200 px-3 py-2">Juan Pérez</td><td class="border border-gray-200 px-3 py-2">No</td></tr>
-        <tr><td class="border border-gray-200 px-3 py-2">correo_persona</td><td class="border border-gray-200 px-3 py-2">juan@correo.com</td><td class="border border-gray-200 px-3 py-2">No</td></tr>
-        <tr><td class="border border-gray-200 px-3 py-2">numero_cuotas</td><td class="border border-gray-200 px-3 py-2">10</td><td class="border border-gray-200 px-3 py-2">No (por defecto: 0)</td></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">numero_credito</td><td class="border border-gray-200 px-3 py-2">1234567890</td><td class="border border-gray-200 px-3 py-2">No (solo dígitos, hasta 60)</td></tr>
     </table>
 
     <form method="post" enctype="multipart/form-data" class="space-y-4">

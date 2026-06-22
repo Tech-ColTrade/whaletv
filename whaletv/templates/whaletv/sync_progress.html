@@ -1,87 +1,87 @@
 {% extends 'whaletv/base.html' %}
 
-{% block title %}Sincronización · Locking System{% endblock %}
+{% block title %}{{ job.get_tipo_display }} masiva · Locking System{% endblock %}
 {% block nav_tv %}navlink-active{% endblock %}
-{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / Sincronización masiva{% endblock %}
+{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / {{ job.get_tipo_display }} masiva{% endblock %}
 
 {% block content %}
-<div class="min-h-[72vh] flex items-center justify-center">
-  <div class="w-full max-w-2xl" data-job="{{ job.pk }}" data-url="{% url 'sync_progreso_api' job.pk %}">
+<div class="max-w-3xl mx-auto" data-job="{{ job.pk }}" data-url="{% url 'sync_progreso_api' job.pk %}" data-tipo="{{ job.tipo }}">
 
-    <!-- Tarjeta principal -->
-    <div class="relative overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-gray-100">
-      <!-- Banda superior con gradiente -->
-      <div class="h-2 bg-gradient-to-r from-whale-light via-whale to-whale-dark"></div>
+  <!-- Encabezado -->
+  <div class="flex items-center justify-between flex-wrap gap-3 mb-5">
+    <div>
+      <h2 class="text-xl font-bold text-gray-800">{{ job.get_tipo_display }} masiva</h2>
+    </div>
+    <span id="estado" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+      <span id="dot" class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+      <span id="estado-txt">…</span>
+    </span>
+  </div>
 
-      <div class="p-8 sm:p-10">
-        <!-- Encabezado -->
-        <div class="flex items-center justify-between mb-8">
-          <div>
-            <h2 class="text-2xl font-extrabold text-gray-800 tracking-tight">Sincronización masiva</h2>
-            <p class="text-sm text-gray-400 mt-0.5">{{ job.workers }} navegador(es) en paralelo · puedes dejar esta página abierta</p>
+  <!-- Progreso: anillo + estadísticas -->
+  <div class="card">
+    <div class="grid sm:grid-cols-2 gap-8 items-center">
+      <!-- Anillo -->
+      <div class="flex justify-center">
+        <div class="relative" style="width:200px;height:200px;">
+          <svg class="-rotate-90" width="200" height="200" viewBox="0 0 220 220">
+            <circle cx="110" cy="110" r="92" fill="none" stroke="#ececf1" stroke-width="16"/>
+            <circle id="ring" cx="110" cy="110" r="92" fill="none" stroke="#f6186a" stroke-width="16"
+                    stroke-linecap="round" stroke-dasharray="578.05" stroke-dashoffset="578.05"
+                    style="transition: stroke-dashoffset .6s ease;"/>
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <div id="pct" class="text-4xl font-extrabold text-gray-800">0%</div>
+            <div id="frac" class="text-xs text-gray-400 mt-1 font-medium">0 / {{ job.total }}</div>
           </div>
-          <span id="estado" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
-            <span id="dot" class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-            <span id="estado-txt">…</span>
-          </span>
-        </div>
-
-        <!-- Anillo de progreso -->
-        <div class="flex flex-col items-center justify-center">
-          <div class="relative" style="width:220px;height:220px;">
-            <svg class="-rotate-90" width="220" height="220" viewBox="0 0 220 220">
-              <circle cx="110" cy="110" r="92" fill="none" stroke="#f1f1f4" stroke-width="16"/>
-              <circle id="ring" cx="110" cy="110" r="92" fill="none" stroke="url(#grad)" stroke-width="16"
-                      stroke-linecap="round" stroke-dasharray="578.05" stroke-dashoffset="578.05"
-                      style="transition: stroke-dashoffset .6s ease;"/>
-              <defs>
-                <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stop-color="#ff4f93"/>
-                  <stop offset="100%" stop-color="#d10f57"/>
-                </linearGradient>
-              </defs>
-            </svg>
-            <div class="absolute inset-0 flex flex-col items-center justify-center">
-              <div id="pct" class="text-4xl font-extrabold text-gray-800">0%</div>
-              <div id="frac" class="text-xs text-gray-400 mt-1 font-medium">0 / {{ job.total }}</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Stats -->
-        <div class="grid grid-cols-3 gap-3 mt-8">
-          <div class="rounded-2xl p-4 text-center bg-green-50 ring-1 ring-green-100">
-            <div id="c-apl" class="text-3xl font-extrabold text-green-600">0</div>
-            <div class="text-[0.7rem] uppercase tracking-wide text-green-700/70 font-semibold mt-1">Aplicados</div>
-          </div>
-          <div class="rounded-2xl p-4 text-center bg-sky-50 ring-1 ring-sky-100">
-            <div id="c-sin" class="text-3xl font-extrabold text-sky-600">0</div>
-            <div class="text-[0.7rem] uppercase tracking-wide text-sky-700/70 font-semibold mt-1">Sin cambios</div>
-          </div>
-          <div class="rounded-2xl p-4 text-center bg-red-50 ring-1 ring-red-100">
-            <div id="c-err" class="text-3xl font-extrabold text-red-600">0</div>
-            <div class="text-[0.7rem] uppercase tracking-wide text-red-700/70 font-semibold mt-1">Con error</div>
-          </div>
-        </div>
-
-        <!-- Mensaje final -->
-        <div id="final" class="hidden mt-6 text-center text-sm font-semibold"></div>
-
-        <!-- Errores -->
-        <div id="errores-wrap" class="mt-6 hidden">
-          <h3 class="text-sm font-bold text-red-700 mb-2">Televisores con error</h3>
-          <div id="errores" class="text-sm text-gray-600 max-h-64 overflow-auto rounded-xl bg-red-50/50 ring-1 ring-red-100 divide-y divide-red-100"></div>
-        </div>
-
-        <div class="mt-8 flex justify-center gap-2">
-          <a href="{% url 'televisor_list' %}" class="btn btn-ghost">← Volver a televisores</a>
-          <form id="cancelar-form" method="post" action="{% url 'sync_cancelar_job' job.pk %}"
-                onsubmit="return confirm('¿Cancelar esta sincronización? Podrás lanzar una nueva.');">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-del">Cancelar sincronización</button>
-          </form>
         </div>
       </div>
+
+      <!-- Estadísticas -->
+      <div class="space-y-2.5">
+        <div class="flex items-center justify-between rounded-xl bg-gray-50 ring-1 ring-gray-100 px-4 py-3">
+          <span class="flex items-center gap-2.5 text-sm font-medium text-gray-600">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            {% if job.tipo == 'validacion' %}Coinciden{% else %}Aplicados{% endif %}
+          </span>
+          <span id="c-apl" class="text-2xl font-bold text-gray-800 tabular-nums">0</span>
+        </div>
+        <div class="flex items-center justify-between rounded-xl bg-gray-50 ring-1 ring-gray-100 px-4 py-3">
+          <span class="flex items-center gap-2.5 text-sm font-medium text-gray-600">
+            <span class="w-2.5 h-2.5 rounded-full {% if job.tipo == 'validacion' %}bg-amber-500{% else %}bg-gray-300{% endif %}"></span>
+            {% if job.tipo == 'validacion' %}No coinciden{% else %}Sin cambios{% endif %}
+          </span>
+          <span id="c-sin" class="text-2xl font-bold text-gray-800 tabular-nums">0</span>
+        </div>
+        <div class="flex items-center justify-between rounded-xl bg-gray-50 ring-1 ring-gray-100 px-4 py-3">
+          <span class="flex items-center gap-2.5 text-sm font-medium text-gray-600">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Con error
+          </span>
+          <span id="c-err" class="text-2xl font-bold text-gray-800 tabular-nums">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mensaje final -->
+    <div id="final" class="hidden mt-6 text-center text-sm font-semibold"></div>
+
+    <!-- Errores -->
+    <div id="errores-wrap" class="mt-6 hidden">
+      <h3 class="text-sm font-bold text-red-700 mb-2">Televisores con error</h3>
+      <div id="errores" class="text-sm text-gray-600 max-h-64 overflow-auto rounded-xl bg-red-50/50 ring-1 ring-red-100 divide-y divide-red-100"></div>
+    </div>
+
+    <!-- Acciones -->
+    <div class="mt-8 pt-5 border-t border-gray-100 flex flex-wrap justify-end gap-2">
+      <a href="{% url 'televisor_list' %}" class="btn btn-ghost">← Volver a televisores</a>
+      <a id="export-btn" href="{% url 'sync_job_export' job.pk %}" class="btn btn-primary hidden">
+        {% if job.tipo == 'validacion' %}⬇ Exportar los que no coinciden{% else %}⬇ Exportar a Excel{% endif %}
+      </a>
+      <form id="cancelar-form" method="post" action="{% url 'sync_cancelar_job' job.pk %}"
+            onsubmit="return confirm('¿Cancelar este proceso? Podrás lanzar uno nuevo.');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-del">Cancelar</button>
+      </form>
     </div>
   </div>
 </div>
@@ -90,15 +90,18 @@
 (function () {
   const card = document.querySelector('[data-job]');
   const url = card.dataset.url;
+  const TIPO = card.dataset.tipo;
+  const VALIDA = TIPO === 'validacion';
   const $ = id => document.getElementById(id);
   const CIRC = 578.05;
 
+  const verbo = VALIDA ? 'Validando…' : 'Sincronizando…';
   const estilos = {
     pendiente: ['bg-amber-100 text-amber-700', 'bg-amber-500', 'En cola', true],
-    corriendo: ['bg-amber-100 text-amber-700', 'bg-amber-500', 'Sincronizando…', true],
-    terminado: ['bg-green-100 text-green-700', 'bg-green-500', 'Completado', false],
-    error:     ['bg-red-100 text-red-700', 'bg-red-500', 'Terminado con errores', false],
-    cancelado: ['bg-gray-200 text-gray-600', 'bg-gray-500', 'Cancelado', false],
+    corriendo: ['bg-amber-100 text-amber-700', 'bg-amber-500', verbo, true],
+    terminado: ['bg-emerald-100 text-emerald-700', 'bg-emerald-500', 'Completada', false],
+    error:     ['bg-rose-100 text-rose-700', 'bg-rose-500', 'Terminada con errores', false],
+    cancelado: ['bg-gray-100 text-gray-500', 'bg-gray-400', 'Cancelada', false],
   };
 
   async function tick() {
@@ -110,8 +113,8 @@
     $('pct').textContent = d.porcentaje + '%';
     $('frac').textContent = d.procesados + ' / ' + d.total;
 
-    $('c-apl').textContent = d.aplicados;
-    $('c-sin').textContent = d.sin_cambios;
+    $('c-apl').textContent = VALIDA ? d.coinciden : d.aplicados;
+    $('c-sin').textContent = VALIDA ? d.no_coinciden : d.sin_cambios;
     $('c-err').textContent = d.error;
 
     const [cls, dotCls, txt, pulse] = estilos[d.estado] || estilos.corriendo;
@@ -129,17 +132,26 @@
     if (d.terminado) {
       const cancelarForm = document.getElementById('cancelar-form');
       if (cancelarForm) cancelarForm.classList.add('hidden');
+
+      // Mostrar el botón de exportar cuando hay algo que exportar.
+      const hayExport = VALIDA ? (d.no_coinciden > 0) : (d.procesados > 0);
+      if (hayExport) $('export-btn').classList.remove('hidden');
+
       const f = $('final');
       f.classList.remove('hidden');
       if (d.estado === 'cancelado') {
         f.className = 'mt-6 text-center text-sm font-semibold text-gray-500';
-        f.textContent = '✕ Sincronización cancelada.';
+        f.textContent = VALIDA ? 'Validación cancelada.' : 'Sincronización cancelada.';
+      } else if (VALIDA) {
+        f.className = 'mt-6 text-center text-sm font-semibold text-emerald-600';
+        f.textContent = 'Validación completada: ' + d.coinciden + ' coinciden, ' + d.no_coinciden + ' no coinciden'
+          + (d.error > 0 ? ' y ' + d.error + ' con error.' : '.');
       } else if (d.error > 0) {
         f.className = 'mt-6 text-center text-sm font-semibold text-amber-600';
-        f.textContent = '✓ Listo: ' + d.aplicados + ' aplicados, ' + d.sin_cambios + ' sin cambios, ' + d.error + ' con error.';
+        f.textContent = 'Sincronización terminada: ' + d.aplicados + ' aplicados, ' + d.sin_cambios + ' sin cambios y ' + d.error + ' con error.';
       } else {
-        f.className = 'mt-6 text-center text-sm font-semibold text-green-600';
-        f.textContent = '✓ ¡Sincronización completada con éxito!';
+        f.className = 'mt-6 text-center text-sm font-semibold text-emerald-600';
+        f.textContent = 'Sincronización completada: ' + d.aplicados + ' aplicados, ' + d.sin_cambios + ' sin cambios.';
       }
     } else {
       setTimeout(tick, 2000);

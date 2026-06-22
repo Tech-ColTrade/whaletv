@@ -1,19 +1,22 @@
 {% extends 'whaletv/base.html' %}
 
-{% block title %}Pin Codes · Locking System{% endblock %}
+{% block title %}Códigos Pin · Locking System{% endblock %}
 {% block nav_pin %}navlink-active{% endblock %}
-{% block breadcrumb %}<span class="text-whale">Devices Management</span> / Pin Codes{% endblock %}
+{% block breadcrumb %}<span class="text-whale">Gestión de dispositivos</span> / Códigos Pin{% endblock %}
 
 {% block content %}
 <div class="flex items-center justify-between gap-4 flex-wrap mb-5">
     <div>
-        <h2 class="text-xl font-bold text-gray-800">Pin Codes generados</h2>
-        <p class="text-sm text-gray-500">MAC, Passcode y Pin Code de cada desbloqueo manual · {{ total }} registro{{ total|pluralize }}.</p>
+        <h2 class="text-xl font-bold text-gray-800">Códigos Pin generados</h2>
+        <p class="text-sm text-gray-500">MAC, Código de Acceso y Código Pin de cada desbloqueo manual · {{ total }} registro{{ total|pluralize }}.</p>
     </div>
+    {% if total %}
+    <a href="{% url 'pincode_export' %}{% if query %}?q={{ query|urlencode }}{% endif %}" class="btn btn-primary">⬇ Exportar todo a Excel</a>
+    {% endif %}
 </div>
 
 <form method="get" class="flex gap-2 mb-5 max-w-md">
-    <input type="text" name="q" value="{{ query }}" placeholder="Buscar MAC, Pin, Passcode o correo..." class="inp">
+    <input type="text" name="q" value="{{ query }}" placeholder="Buscar MAC, Pin, Código de Acceso o correo..." class="inp">
     <button type="submit" class="btn btn-ghost">Buscar</button>
 </form>
 
@@ -23,9 +26,9 @@
         <thead>
             <tr>
                 <th class="th">Fecha</th>
-                <th class="th">Mac Address</th>
-                <th class="th">Passcode</th>
-                <th class="th">Pin Code</th>
+                <th class="th">Dirección MAC</th>
+                <th class="th">Código de Acceso</th>
+                <th class="th">Código Pin</th>
                 <th class="th">Quién lo generó</th>
             </tr>
         </thead>
@@ -47,9 +50,9 @@
 {% else %}
 <div class="card text-center text-gray-400 py-12">
     {% if query %}
-        No se encontraron Pin Codes para "{{ query }}".
+        No se encontraron Códigos Pin para "{{ query }}".
     {% else %}
-        Aún no se ha generado ningún Pin Code.
+        Aún no se ha generado ningún Código Pin.
     {% endif %}
 </div>
 {% endif %}
