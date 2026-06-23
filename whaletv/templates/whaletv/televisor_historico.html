@@ -4,20 +4,20 @@
 {% block nav_tv %}navlink-active{% endblock %}
 {% block breadcrumb %}
     <a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> /
-    <a href="{% url 'registro_sync_tv' televisor.mac_address %}" class="text-whale">{{ televisor.mac_address }}</a> / Bloqueos
+    <a href="{% url 'registro_sync_tv' televisor.mac_address %}" class="text-whale">{{ televisor.mac_address }}</a> / Inhabilitaciones
 {% endblock %}
 
 {% block content %}
 <div class="card mb-5">
     <div class="flex items-start justify-between flex-wrap gap-3">
         <div>
-            <h2 class="text-xl font-bold text-gray-800 mb-1">Histórico de bloqueos</h2>
+            <h2 class="text-xl font-bold text-gray-800 mb-1">Histórico de inhabilitaciones</h2>
             <div class="text-sm text-gray-500">
                 <b class="text-gray-800">{{ televisor.mac_address }}</b> · Estado actual:
-                {% if televisor.lock_status %}
-                    <span class="pill pill-lock">Bloqueado</span>
+                {% if televisor.inhabilitado %}
+                    <span class="pill pill-lock">Inhabilitado</span>
                 {% else %}
-                    <span class="pill pill-unlock">Desbloqueado</span>
+                    <span class="pill pill-unlock">Habilitado</span>
                 {% endif %}
             </div>
         </div>
@@ -41,31 +41,31 @@
 </div>
 
 <div class="card !p-0 overflow-hidden mb-5">
-    {% if bloqueos %}
+    {% if inhabilitaciones %}
     <table class="w-full">
         <thead>
             <tr>
                 <th class="th">Fecha</th>
                 <th class="th">Estado</th>
-                <th class="th">Número de serie</th>
+                <th class="th">Número de serial</th>
                 <th class="th">Acciones</th>
             </tr>
         </thead>
         <tbody>
-            {% for b in bloqueos %}
+            {% for b in inhabilitaciones %}
             <tr class="hover:bg-gray-50">
                 <td class="td">{{ b.created_at|date:"d/m/Y H:i" }}</td>
                 <td class="td">
                     {% if b.estado %}
-                        <span class="pill pill-lock">Bloqueado</span>
+                        <span class="pill pill-lock">Inhabilitado</span>
                     {% else %}
-                        <span class="pill pill-unlock">Desbloqueado</span>
+                        <span class="pill pill-unlock">Habilitado</span>
                     {% endif %}
                 </td>
                 <td class="td">{{ b.serial_number|default:"—" }}</td>
                 <td class="td">
-                    <form method="post" action="{% url 'bloqueo_delete' b.pk %}"
-                          onsubmit="return confirm('¿Eliminar este registro de bloqueo?');">
+                    <form method="post" action="{% url 'inhabilitacion_delete' b.pk %}"
+                          onsubmit="return confirm('¿Eliminar este registro de inhabilitación?');">
                         {% csrf_token %}
                         <button type="submit" class="btn btn-sm btn-del">Eliminar</button>
                     </form>
@@ -75,7 +75,7 @@
         </tbody>
     </table>
     {% else %}
-    <div class="text-center text-gray-400 py-10">Este televisor aún no tiene registros de bloqueo. Registra el primero arriba.</div>
+    <div class="text-center text-gray-400 py-10">Este televisor aún no tiene registros de inhabilitación. Registra el primero arriba.</div>
     {% endif %}
 </div>
 

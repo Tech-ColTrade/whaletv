@@ -39,10 +39,10 @@
                 <td class="td whitespace-nowrap">{{ r.creado|date:"d/m/Y H:i" }}</td>
                 <td class="td font-medium">{{ r.usuario_email|default:"—" }}</td>
                 <td class="td">
-                    {% if r.lock_status %}
-                        <span class="pill pill-lock">Bloqueado</span>
+                    {% if r.inhabilitado %}
+                        <span class="pill pill-lock">Inhabilitado</span>
                     {% else %}
-                        <span class="pill pill-unlock">Desbloqueado</span>
+                        <span class="pill pill-unlock">Habilitado</span>
                     {% endif %}
                 </td>
                 <td class="td">

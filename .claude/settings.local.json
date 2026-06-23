@@ -8,7 +8,18 @@
       "PowerShell(python manage.py shell -c \"from whaletv.models import Televisor; tv=Televisor.objects.filter\\(mac_address__iexact='B4:04:29:7E:3A:EE'\\).first\\(\\); print\\('fecha_sincronizar ahora:', tv.fecha_sincronizar, '-> portal MM/DD/YYYY:', tv.fecha_sincronizar.strftime\\('%m/%d/%Y'\\) if tv.fecha_sincronizar else None\\)\")",
       "PowerShell(python --version)",
       "PowerShell(python manage.py migrate whaletv)",
-      "Bash(python manage.py shell -c ' *)"
+      "Bash(python manage.py shell -c ' *)",
+      "Bash(python -c \"import docx; print\\('python-docx OK', docx.__version__\\)\")",
+      "Bash(python build_manual.py)",
+      "Bash(python -c ' *)",
+      "Bash(python build_manual_tecnico.py)",
+      "PowerShell(python manage.py makemigrations --check --dry-run)",
+      "PowerShell(python manage.py check 2>&1)",
+      "PowerShell(python -c \"import django, os; os.environ.setdefault\\('DJANGO_SETTINGS_MODULE','core.settings'\\); django.setup\\(\\); from django.urls import reverse; print\\('habilitar_manual OK:', reverse\\('habilitar_manual', args=['AA']\\)\\); print\\('inhabilitacion_import OK:', reverse\\('inhabilitacion_import'\\)\\)\")",
+      "Bash(python -c \"import docx; print\\('python-docx OK'\\)\")",
+      "Bash(python _fix_manual.py)",
+      "Bash(rm -f _manual_dump.txt _runs.txt _runs2.txt _fix_report.txt _verif.txt _verif2.txt _fix_manual.py)",
+      "Read(//c/c/Users/Julian Herreño/OneDrive - Colombian Trade Company SAS/DATA/02. AREAS/DATA/Julian Estif Herreno Palacios/whaletv/**)"
     ]
   }
 }

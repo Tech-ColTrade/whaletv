@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Bloqueo, RegistroSync, SyncJob, SyncJobItem, Televisor
+from .models import Inhabilitacion, RegistroSync, SyncJob, SyncJobItem, Televisor
 
 
 @admin.register(SyncJob)
@@ -14,15 +14,15 @@ class SyncJobAdmin(admin.ModelAdmin):
 class RegistroSyncAdmin(admin.ModelAdmin):
     list_display = (
         'creado', 'usuario_email', 'nombre_persona', 'mac_address',
-        'lock_status', 'aplicado', 'tipo',
+        'inhabilitado', 'aplicado', 'tipo',
     )
-    list_filter = ('tipo', 'lock_status', 'aplicado')
+    list_filter = ('tipo', 'inhabilitado', 'aplicado')
     search_fields = ('mac_address', 'nombre_persona', 'usuario_email')
     ordering = ('-creado',)
 
 
-class BloqueoInline(admin.TabularInline):
-    model = Bloqueo
+class InhabilitacionInline(admin.TabularInline):
+    model = Inhabilitacion
     extra = 0
 
 
@@ -32,17 +32,17 @@ class TelevisorAdmin(admin.ModelAdmin):
         'mac_address',
         'serial_number',
         'numero_credito',
-        'lock_status',
+        'inhabilitado',
     )
-    list_filter = ('lock_status',)
+    list_filter = ('inhabilitado',)
     search_fields = ('mac_address', 'serial_number', 'numero_credito')
     ordering = ('-created_at',)
-    readonly_fields = ('lock_status',)
-    inlines = [BloqueoInline]
+    readonly_fields = ('inhabilitado',)
+    inlines = [InhabilitacionInline]
 
 
-@admin.register(Bloqueo)
-class BloqueoAdmin(admin.ModelAdmin):
+@admin.register(Inhabilitacion)
+class InhabilitacionAdmin(admin.ModelAdmin):
     list_display = (
         'mac_address',
         'serial_number',

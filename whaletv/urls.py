@@ -27,19 +27,18 @@ urlpatterns = [
     path('detailtv/<str:mac>/pincodes/', views.registro_sync_tv_pincodes, name='registro_sync_tv_pincodes'),
     path('detailtv/<str:mac>/pincodes/exportar/', views.registro_sync_tv_pincodes_export, name='registro_sync_tv_pincodes_export'),
     path('detailtv/<str:mac>/exportar/', views.registro_sync_tv_export, name='registro_sync_tv_export'),
-    path('detailtv/<str:mac>/desbloquear/', views.desbloquear_manual, name='desbloquear_manual'),
-    path('detailtv/<str:mac>/desbloquear/sincronizar/', views.desbloquear_sincronizar, name='desbloquear_sincronizar'),
+    path('detailtv/<str:mac>/habilitar/', views.habilitar_manual, name='habilitar_manual'),
+    path('detailtv/<str:mac>/habilitar/sincronizar/', views.habilitar_sincronizar, name='habilitar_sincronizar'),
     path('televisores/importar/', views.televisor_import, name='televisor_import'),
     path('televisores/plantilla/', views.televisor_plantilla, name='televisor_plantilla'),
     path('televisores/nuevo/', views.televisor_create, name='televisor_create'),
     path('televisores/<int:pk>/editar/', views.televisor_update, name='televisor_update'),
-    path('televisores/<int:pk>/eliminar/', views.televisor_delete, name='televisor_delete'),
     path('televisores/<int:pk>/validar/', views.televisor_validar, name='televisor_validar'),
     path('televisores/<int:pk>/sincronizar/', views.televisor_sincronizar, name='televisor_sincronizar'),
     path('televisores/<int:pk>/historico/', views.televisor_historico, name='televisor_historico'),
 
-    # Bloqueos
-    path('bloqueos/importar/', views.bloqueo_import, name='bloqueo_import'),
-    path('bloqueos/plantilla/', views.bloqueo_plantilla, name='bloqueo_plantilla'),
-    path('bloqueos/<int:pk>/eliminar/', views.bloqueo_delete, name='bloqueo_delete'),
+    # Inhabilitaciones
+    path('inhabilitaciones/importar/', views.inhabilitacion_import, name='inhabilitacion_import'),
+    path('inhabilitaciones/plantilla/', views.inhabilitacion_plantilla, name='inhabilitacion_plantilla'),
+    path('inhabilitaciones/<int:pk>/eliminar/', views.inhabilitacion_delete, name='inhabilitacion_delete'),
 ]

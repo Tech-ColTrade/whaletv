@@ -44,10 +44,10 @@
                     <a href="{% url 'registro_sync_tv' r.mac_address %}" class="text-whale hover:underline">{{ r.mac_address }}</a>
                 </td>
                 <td class="td">
-                    {% if r.lock_status %}
-                        <span class="pill pill-lock">Bloqueado</span>
+                    {% if r.inhabilitado %}
+                        <span class="pill pill-lock">Inhabilitado</span>
                     {% else %}
-                        <span class="pill pill-unlock">Desbloqueado</span>
+                        <span class="pill pill-unlock">Habilitado</span>
                     {% endif %}
                 </td>
                 <td class="td">

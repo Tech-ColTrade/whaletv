@@ -17,7 +17,7 @@ validar_numero_credito = RegexValidator(
 
 
 class Televisor(models.Model):
-    """Televisor WhaleTV: se bloquea/desbloquea según su último Bloqueo."""
+    """Televisor WhaleTV: se inhabilita/habilita según su última Inhabilitación."""
 
     mac_address = models.CharField('Dirección MAC', max_length=50)
     serial_number = models.CharField('Número de serie', max_length=50)
@@ -29,8 +29,8 @@ class Televisor(models.Model):
         validators=[validar_numero_credito],
     )
 
-    # lock_status se calcula a partir de los bloqueos (ver calcular_estado()).
-    lock_status = models.BooleanField('Lock Status', default=False)
+    # inhabilitado se calcula a partir de las inhabilitaciones (ver calcular_estado()).
+    inhabilitado = models.BooleanField('Inhabilitado', default=False)
 
     created_at = models.DateTimeField('Fecha de registro', auto_now_add=True)
 
@@ -42,25 +42,25 @@ class Televisor(models.Model):
         return self.mac_address
 
     # ------------------------------------------------------------------
-    # Estado derivado de los bloqueos
+    # Estado derivado de las inhabilitaciones
     # ------------------------------------------------------------------
     def calcular_estado(self):
-        """lock_status = estado del último bloqueo registrado para el TV.
+        """inhabilitado = estado de la última inhabilitación registrada para el TV.
 
-        Devuelve True si lock_status cambió.
+        Devuelve True si inhabilitado cambió.
         """
         if not self.pk:
             return False
-        ultimo = self.bloqueos.first()  # ordenados por -created_at
-        nuevo = bool(ultimo.estado) if ultimo else False
-        cambio = self.lock_status != nuevo
-        self.lock_status = nuevo
+        ultima = self.inhabilitaciones.first()  # ordenadas por -created_at
+        nuevo = bool(ultima.estado) if ultima else False
+        cambio = self.inhabilitado != nuevo
+        self.inhabilitado = nuevo
         return cambio
 
-    def actualizar_lock(self):
-        """Recalcula y persiste lock_status sin reentrar a save()."""
+    def actualizar_estado(self):
+        """Recalcula y persiste inhabilitado sin reentrar a save()."""
         if self.calcular_estado():
-            Televisor.objects.filter(pk=self.pk).update(lock_status=self.lock_status)
+            Televisor.objects.filter(pk=self.pk).update(inhabilitado=self.inhabilitado)
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -70,59 +70,59 @@ class Televisor(models.Model):
     @classmethod
     def refrescar_todos(cls):
         for tv in cls.objects.all():
-            tv.actualizar_lock()
+            tv.actualizar_estado()
 
     @property
     def fecha_sincronizar(self):
         """Fecha que se empuja al portal (Next Installment Date).
 
-        - Bloqueado    → hoy − 30 días (fecha vencida → el portal lo bloquea).
-        - Desbloqueado → hoy + 30 días (fecha futura → el portal lo deja libre).
+        - Inhabilitado → hoy − 30 días (fecha vencida → el portal lo inhabilita).
+        - Habilitado   → hoy + 30 días (fecha futura → el portal lo deja libre).
         """
         hoy = timezone.localdate()
         dias = datetime.timedelta(days=DIAS_DESFASE)
-        return hoy - dias if self.lock_status else hoy + dias
+        return hoy - dias if self.inhabilitado else hoy + dias
 
     @property
-    def ultimo_bloqueo(self):
-        """El bloqueo más reciente del televisor (define su estado actual)."""
-        return self.bloqueos.first()
+    def ultima_inhabilitacion(self):
+        """La inhabilitación más reciente del televisor (define su estado actual)."""
+        return self.inhabilitaciones.first()
 
 
-class Bloqueo(models.Model):
-    """Estado de bloqueo de un televisor, cargado desde el Excel de bloqueos.
+class Inhabilitacion(models.Model):
+    """Estado de inhabilitación de un televisor, cargado desde el Excel de estados.
 
-    Cada importación registra el estado (bloqueado/desbloqueado) de un TV.
-    El estado actual del televisor (lock_status) es el del último bloqueo.
+    Cada importación registra el estado (inhabilitado/habilitado) de un TV.
+    El estado actual del televisor (inhabilitado) es el de la última inhabilitación.
     """
 
     televisor = models.ForeignKey(
         Televisor,
-        related_name='bloqueos',
+        related_name='inhabilitaciones',
         on_delete=models.CASCADE,
         verbose_name='televisor',
     )
     serial_number = models.CharField('Serial Number', max_length=50, blank=True, default='')
     mac_address = models.CharField('Mac Address', max_length=50)
-    estado = models.BooleanField('Bloqueado', default=False)
+    estado = models.BooleanField('Inhabilitado', default=False)
     created_at = models.DateTimeField('Fecha de registro', auto_now_add=True)
 
     class Meta:
-        verbose_name = 'bloqueo'
-        verbose_name_plural = 'bloqueos'
+        verbose_name = 'inhabilitación'
+        verbose_name_plural = 'inhabilitaciones'
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.mac_address} · {"Bloqueado" if self.estado else "Desbloqueado"}'
+        return f'{self.mac_address} · {"Inhabilitado" if self.estado else "Habilitado"}'
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        self.televisor.actualizar_lock()
+        self.televisor.actualizar_estado()
 
     def delete(self, *args, **kwargs):
         tv = self.televisor
         super().delete(*args, **kwargs)
-        tv.actualizar_lock()
+        tv.actualizar_estado()
 
 
 class SyncJob(models.Model):
@@ -183,8 +183,8 @@ class SyncJobItem(models.Model):
     aplicado = models.BooleanField(default=False)
     # Para trabajos de validación (dry-run): estado leído en el portal, estado
     # local de la app, y si coinciden.
-    remoto_bloqueado = models.BooleanField(null=True, blank=True)
-    local_bloqueado = models.BooleanField(null=True, blank=True)
+    remoto_inhabilitado = models.BooleanField(null=True, blank=True)
+    local_inhabilitado = models.BooleanField(null=True, blank=True)
     coincide = models.BooleanField(null=True, blank=True)
     mensaje = models.TextField(blank=True, default='')
 
@@ -220,7 +220,7 @@ class RegistroSync(models.Model):
     )
     nombre_persona = models.CharField('Nombre persona', max_length=150, blank=True, default='')
     mac_address = models.CharField('Mac Address', max_length=50)
-    lock_status = models.BooleanField('Quedó bloqueado', default=False)
+    inhabilitado = models.BooleanField('Quedó inhabilitado', default=False)
     aplicado = models.BooleanField('Aplicó cambio en el portal', default=False)
     tipo = models.CharField(max_length=12, choices=TIPOS, default='individual')
     creado = models.DateTimeField('Fecha', auto_now_add=True)
@@ -241,14 +241,14 @@ class RegistroSync(models.Model):
             usuario_email=getattr(usuario, 'email', '') or '',
             televisor=televisor,
             mac_address=televisor.mac_address,
-            lock_status=bool(televisor.lock_status),
+            inhabilitado=bool(televisor.inhabilitado),
             aplicado=bool(aplicado),
             tipo=tipo,
         )
 
 
 class PinCodeGenerado(models.Model):
-    """Bitácora de cada Pin Code generado (Desbloquear Manual): MAC + Passcode + Pin."""
+    """Bitácora de cada Pin Code generado (Habilitar Manual): MAC + Passcode + Pin."""
 
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,

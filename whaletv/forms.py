@@ -1,12 +1,18 @@
 from django import forms
 
-from .models import Bloqueo, Televisor
+from .models import Inhabilitacion, Televisor
 
 
 class TelevisorForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # mac_address y serial_number son obligatorios al crear/editar.
+        self.fields['mac_address'].required = True
+        self.fields['serial_number'].required = True
+
     class Meta:
         model = Televisor
-        # lock_status NO se incluye: se calcula a partir de los bloqueos.
+        # inhabilitado NO se incluye: se calcula a partir de las inhabilitaciones.
         fields = [
             'mac_address',
             'serial_number',
@@ -24,14 +30,14 @@ class TelevisorForm(forms.ModelForm):
         }
 
 
-class BloqueoForm(forms.ModelForm):
-    """Registrar manualmente un estado de bloqueo para un televisor."""
+class InhabilitacionForm(forms.ModelForm):
+    """Registrar manualmente un estado de inhabilitación para un televisor."""
 
     class Meta:
-        model = Bloqueo
+        model = Inhabilitacion
         fields = ['estado']
         widgets = {
             'estado': forms.Select(
-                choices=((True, 'Bloqueado'), (False, 'Desbloqueado')),
+                choices=((True, 'Inhabilitado'), (False, 'Habilitado')),
             ),
         }

@@ -9,8 +9,8 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .forms import BloqueoForm, TelevisorForm
-from .models import Bloqueo, PinCodeGenerado, RegistroSync, SyncJob, SyncJobItem, Televisor
+from .forms import InhabilitacionForm, TelevisorForm
+from .models import Inhabilitacion, PinCodeGenerado, RegistroSync, SyncJob, SyncJobItem, Televisor
 
 
 def login_view(request):
@@ -51,7 +51,7 @@ def logout_view(request):
 @login_required
 def televisor_list(request):
     """Lista todos los televisores, con búsqueda opcional."""
-    # Recalcula los estados (vencida/bloqueado) según la fecha de hoy.
+    # Recalcula los estados (vencida/inhabilitado) según la fecha de hoy.
     Televisor.refrescar_todos()
 
     query = request.GET.get('q', '').strip()
@@ -125,22 +125,22 @@ def televisor_validar(request, pk):
     def estado(b):
         if b is None:
             return '¿?'
-        return 'Bloqueado' if b else 'Desbloqueado'
+        return 'Inhabilitado' if b else 'Habilitado'
 
     if resultado.ok:
         if resultado.cambiaria:
             messages.warning(
                 request,
                 f'El televisor {televisor.mac_address} está '
-                f'{estado(resultado.remoto_bloqueado)} en el portal, pero '
-                f'{estado(resultado.local_bloqueado)} en la app. '
+                f'{estado(resultado.remoto_inhabilitado)} en el portal, pero '
+                f'{estado(resultado.local_inhabilitado)} en la app. '
                 'Conviene sincronizar para que coincidan.',
             )
         else:
             messages.success(
                 request,
                 f'El televisor {televisor.mac_address} está '
-                f'{estado(resultado.remoto_bloqueado)} en el portal, igual que en la app. '
+                f'{estado(resultado.remoto_inhabilitado)} en el portal, igual que en la app. '
                 'No hay nada que sincronizar.',
             )
     else:
@@ -173,7 +173,7 @@ def televisor_sincronizar(request, pk):
     def estado(b):
         if b is None:
             return '¿?'
-        return 'Bloqueado' if b else 'Desbloqueado'
+        return 'Inhabilitado' if b else 'Habilitado'
 
     if resultado.ok:
         if resultado.aplicado:
@@ -181,14 +181,14 @@ def televisor_sincronizar(request, pk):
             messages.success(
                 request,
                 f'[{televisor.mac_address}] SINCRONIZADO en el portal → '
-                f'quedó {estado(resultado.remoto_bloqueado)}'
+                f'quedó {estado(resultado.remoto_inhabilitado)}'
                 + (f' · fecha {fecha:%d/%m/%Y}' if fecha else ''),
             )
         else:
             messages.success(
                 request,
                 f'[{televisor.mac_address}] Ya estaba igual en el portal '
-                f'({estado(resultado.remoto_bloqueado)}), no se cambió nada.',
+                f'({estado(resultado.remoto_inhabilitado)}), no se cambió nada.',
             )
     else:
         messages.error(
@@ -197,21 +197,6 @@ def televisor_sincronizar(request, pk):
         )
 
     return redirect('televisor_list')
-
-
-@login_required
-def televisor_delete(request, pk):
-    """Elimina un televisor (con confirmación)."""
-    televisor = get_object_or_404(Televisor, pk=pk)
-
-    if request.method == 'POST':
-        televisor.delete()
-        messages.success(request, 'Televisor eliminado correctamente.')
-        return redirect('televisor_list')
-
-    return render(request, 'whaletv/televisor_confirm_delete.html', {
-        'televisor': televisor,
-    })
 
 
 # ---------------------------------------------------------------------------
@@ -524,17 +509,17 @@ def sync_progreso_api(request, pk):
     })
 
 
-def _texto_estado(bloqueado):
-    return 'Bloqueado' if bloqueado else 'Desbloqueado'
+def _texto_estado(inhabilitado):
+    return 'Inhabilitado' if inhabilitado else 'Habilitado'
 
 
-def _transicion_estado(final_bloqueado, aplicado):
+def _transicion_estado(final_inhabilitado, aplicado):
     """Devuelve (estado_anterior, estado_final) como texto.
 
     Si la sincronización 'aplicó' un cambio, el estado anterior era el opuesto
     del final; si no aplicó nada, ya estaba igual (anterior == final).
     """
-    final = bool(final_bloqueado)
+    final = bool(final_inhabilitado)
     antes = (not final) if aplicado else final
     return _texto_estado(antes), _texto_estado(final)
 
@@ -589,8 +574,8 @@ def sync_job_export(request, pk):
                 item.mac,
                 tv.serial_number if tv else '—',
                 tv.numero_credito if tv else '—',
-                _texto_estado(item.remoto_bloqueado) if item.remoto_bloqueado is not None else '¿?',
-                _texto_estado(item.local_bloqueado) if item.local_bloqueado is not None else '¿?',
+                _texto_estado(item.remoto_inhabilitado) if item.remoto_inhabilitado is not None else '¿?',
+                _texto_estado(item.local_inhabilitado) if item.local_inhabilitado is not None else '¿?',
             ])
         for col, ancho in zip('ABCDE', (20, 20, 22, 20, 20)):
             ws.column_dimensions[col].width = ancho
@@ -603,8 +588,8 @@ def sync_job_export(request, pk):
     for item in items:
         tv = item.televisor
         if item.estado == 'ok':
-            # El mensaje OK empieza con "Bloqueado"/"Desbloqueado" (estado final).
-            final = item.mensaje.strip().lower().startswith('bloqueado')
+            # El mensaje OK empieza con "Inhabilitado"/"Habilitado" (estado final).
+            final = item.mensaje.strip().lower().startswith('inhabilitado')
             antes, despues = _transicion_estado(final, item.aplicado)
         else:
             antes, despues = '—', '—'
@@ -695,7 +680,7 @@ def registro_sync_export(request):
         cell.alignment = Alignment(horizontal='center')
 
     for r in registros:
-        antes, despues = _transicion_estado(r.lock_status, r.aplicado)
+        antes, despues = _transicion_estado(r.inhabilitado, r.aplicado)
         ws.append([
             r.creado.strftime('%d/%m/%Y %H:%M'),
             r.usuario_email or '—',
@@ -816,7 +801,7 @@ def registro_sync_tv_pincodes(request, mac):
 
 
 @login_required
-def desbloquear_manual(request, mac):
+def habilitar_manual(request, mac):
     """Genera un Pin Code en el portal de Locking System usando el Passcode dado.
 
     Responde JSON (lo consume el modal de la página vía fetch).
@@ -850,11 +835,11 @@ def desbloquear_manual(request, mac):
 
 
 @login_required
-def desbloquear_sincronizar(request, mac):
+def habilitar_sincronizar(request, mac):
     """Sincroniza (modo real) el estado + fecha de la factura del TV con el portal.
 
     Es lo mismo que el botón 'Sincronizar', pero invocado por AJAX desde el modal
-    de Desbloquear Manual al pulsar 'Listo'. Responde JSON.
+    de Habilitar Manual al pulsar 'Listo'. Responde JSON.
     """
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'Método no permitido.'}, status=405)
@@ -872,7 +857,7 @@ def desbloquear_sincronizar(request, mac):
     def estado(b):
         if b is None:
             return '¿?'
-        return 'Bloqueado' if b else 'Desbloqueado'
+        return 'Inhabilitado' if b else 'Habilitado'
 
     if resultado.ok:
         RegistroSync.registrar(
@@ -883,14 +868,14 @@ def desbloquear_sincronizar(request, mac):
             messages.success(
                 request,
                 f'[{televisor.mac_address}] SINCRONIZADO en el portal → '
-                f'quedó {estado(resultado.remoto_bloqueado)}'
+                f'quedó {estado(resultado.remoto_inhabilitado)}'
                 + (f' · fecha {fecha:%d/%m/%Y}' if fecha else ''),
             )
         else:
             messages.success(
                 request,
                 f'[{televisor.mac_address}] Ya estaba igual en el portal '
-                f'({estado(resultado.remoto_bloqueado)}), no se cambió nada.',
+                f'({estado(resultado.remoto_inhabilitado)}), no se cambió nada.',
             )
         return JsonResponse({'ok': True, 'redirect': reverse('televisor_list')})
 
@@ -925,7 +910,7 @@ def registro_sync_tv_export(request, mac):
         cell.alignment = Alignment(horizontal='center')
 
     for r in registros:
-        antes, despues = _transicion_estado(r.lock_status, r.aplicado)
+        antes, despues = _transicion_estado(r.inhabilitado, r.aplicado)
         ws.append([
             r.creado.strftime('%d/%m/%Y %H:%M'),
             r.usuario_email or '—',
@@ -1002,51 +987,52 @@ def registro_sync_tv_pincodes_export(request, mac):
 
 @login_required
 def televisor_historico(request, pk):
-    """Lista el histórico de bloqueos del televisor y permite registrar uno nuevo."""
+    """Lista el histórico de inhabilitaciones del televisor y permite registrar una nueva."""
     televisor = get_object_or_404(Televisor, pk=pk)
 
     if request.method == 'POST':
-        form = BloqueoForm(request.POST)
+        form = InhabilitacionForm(request.POST)
         if form.is_valid():
-            bloqueo = form.save(commit=False)
-            bloqueo.televisor = televisor
-            bloqueo.mac_address = televisor.mac_address
-            bloqueo.serial_number = televisor.serial_number
-            bloqueo.save()
-            estado = 'Bloqueado' if bloqueo.estado else 'Desbloqueado'
+            inhabilitacion = form.save(commit=False)
+            inhabilitacion.televisor = televisor
+            inhabilitacion.mac_address = televisor.mac_address
+            inhabilitacion.serial_number = televisor.serial_number
+            inhabilitacion.save()
+            estado = 'Inhabilitado' if inhabilitacion.estado else 'Habilitado'
             messages.success(request, f'Estado registrado: {estado}.')
             return redirect('televisor_historico', pk=televisor.pk)
     else:
-        form = BloqueoForm()
+        form = InhabilitacionForm()
 
-    bloqueos = televisor.bloqueos.all()
+    inhabilitaciones = televisor.inhabilitaciones.all()
     return render(request, 'whaletv/televisor_historico.html', {
         'televisor': televisor,
-        'bloqueos': bloqueos,
+        'inhabilitaciones': inhabilitaciones,
         'form': form,
     })
 
 
 @login_required
-def bloqueo_delete(request, pk):
-    """Elimina un registro de bloqueo (recalcula el estado del TV)."""
-    bloqueo = get_object_or_404(Bloqueo, pk=pk)
-    tv_id = bloqueo.televisor_id
+def inhabilitacion_delete(request, pk):
+    """Elimina un registro de inhabilitación (recalcula el estado del TV)."""
+    inhabilitacion = get_object_or_404(Inhabilitacion, pk=pk)
+    tv_id = inhabilitacion.televisor_id
     if request.method == 'POST':
-        bloqueo.delete()
-        messages.success(request, 'Registro de bloqueo eliminado.')
+        inhabilitacion.delete()
+        messages.success(request, 'Registro de inhabilitación eliminado.')
     return redirect('televisor_historico', pk=tv_id)
 
 
 # ---------------------------------------------------------------------------
-# Importación masiva de bloqueos (CSV / Excel)
+# Importación masiva de inhabilitaciones (CSV / Excel)
 # ---------------------------------------------------------------------------
 
 # Sinónimos aceptados para cada columna (encabezados flexibles).
-_COLUMNAS_BLOQUEO = {
+_COLUMNAS_INHABILITACION = {
     'mac_address': {'mac_address', 'mac', 'mac address'},
     'serial_number': {'serial_number', 'serial', 'serial number', 'sn'},
-    'estado': {'estado', 'status', 'lock', 'lock_status', 'bloqueo', 'bloqueado'},
+    'estado': {'estado', 'status', 'lock', 'lock_status', 'bloqueo', 'bloqueado',
+               'inhabilitacion', 'inhabilitación', 'inhabilitado'},
 }
 
 _COLUMNAS_TV = {
@@ -1056,11 +1042,14 @@ _COLUMNAS_TV = {
                        'credito', 'crédito', 'n_credito', 'num_credito', 'nro_credito'},
 }
 
-# Valores aceptados en la columna 'estado' del Excel de bloqueos.
-_ESTADO_BLOQUEADO = {'bloqueado', 'bloqueo', 'bloquear', 'lock', 'locked', 'si', 'sí',
-                     'true', '1', 'x', 'yes', 'y'}
-_ESTADO_DESBLOQUEADO = {'desbloqueado', 'desbloqueo', 'desbloquear', 'unlock', 'unlocked',
-                        'no', 'false', '0', 'n'}
+# Valores aceptados en la columna 'estado' del Excel de inhabilitaciones.
+# Se conservan los términos antiguos (bloqueado/desbloqueado) por compatibilidad.
+_ESTADO_INHABILITADO = {'inhabilitado', 'inhabilitar', 'inhabilitacion', 'inhabilitación',
+                        'bloqueado', 'bloqueo', 'bloquear', 'lock', 'locked', 'si', 'sí',
+                        'true', '1', 'x', 'yes', 'y'}
+_ESTADO_HABILITADO = {'habilitado', 'habilitar', 'habilitacion', 'habilitación',
+                      'desbloqueado', 'desbloqueo', 'desbloquear', 'unlock', 'unlocked',
+                      'no', 'false', '0', 'n'}
 
 
 def _mapear_columnas(headers, columnas):
@@ -1092,15 +1081,15 @@ def _texto(valor):
     return '' if texto.lower() in ('nan', 'nat', 'none') else texto
 
 
-def _parse_estado_bloqueo(valor):
-    """Interpreta la celda 'estado' del Excel de bloqueos.
+def _parse_estado_inhabilitacion(valor):
+    """Interpreta la celda 'estado' del Excel de inhabilitaciones.
 
-    Devuelve True (bloqueado), False (desbloqueado) o None si no se reconoce.
+    Devuelve True (inhabilitado), False (habilitado) o None si no se reconoce.
     """
     texto = _texto(valor).lower()
-    if texto in _ESTADO_BLOQUEADO:
+    if texto in _ESTADO_INHABILITADO:
         return True
-    if texto in _ESTADO_DESBLOQUEADO:
+    if texto in _ESTADO_HABILITADO:
         return False
     return None
 
@@ -1131,10 +1120,12 @@ def televisor_import(request):
             return redirect('televisor_import')
 
         mapa = _mapear_columnas(df.columns, _COLUMNAS_TV)
-        if 'mac_address' not in mapa:
+        faltantes = [c for c in ('mac_address', 'serial_number') if c not in mapa]
+        if faltantes:
             messages.error(
                 request,
-                'Falta la columna mac_address. Encabezados encontrados: '
+                'Faltan columnas obligatorias: ' + ', '.join(faltantes)
+                + '. Encabezados encontrados: '
                 + ', '.join(str(c) for c in df.columns),
             )
             return redirect('televisor_import')
@@ -1148,9 +1139,12 @@ def televisor_import(request):
                 errores.append(f'Fila {n}: falta MAC.')
                 continue
 
-            datos = {}
-            if 'serial_number' in mapa:
-                datos['serial_number'] = _texto(fila[mapa['serial_number']])
+            serial = _texto(fila[mapa['serial_number']])
+            if not serial:
+                errores.append(f'Fila {n}: falta el número de serie (serial).')
+                continue
+
+            datos = {'serial_number': serial}
             if 'numero_credito' in mapa:
                 datos['numero_credito'] = _solo_digitos(fila[mapa['numero_credito']])
 
@@ -1222,11 +1216,11 @@ def televisor_plantilla(request):
 
 
 @login_required
-def bloqueo_import(request):
-    """Importa bloqueos desde Excel/CSV (Serial, Mac Address, estado).
+def inhabilitacion_import(request):
+    """Importa inhabilitaciones desde Excel/CSV (Serial, Mac Address, estado).
 
-    Cada fila fija el estado (bloqueado/desbloqueado) del televisor de esa MAC.
-    Si el TV no existe se crea. Si el estado cambia, se registra un Bloqueo.
+    Cada fila fija el estado (inhabilitado/habilitado) del televisor de esa MAC.
+    Si el TV no existe se crea. Si el estado cambia, se registra una Inhabilitacion.
     """
     resultado = None
     cambios = []
@@ -1236,17 +1230,17 @@ def bloqueo_import(request):
             df = _leer_dataframe(request.FILES['archivo'])
         except Exception as e:  # noqa: BLE001
             messages.error(request, f'No pude leer el archivo: {e}')
-            return redirect('bloqueo_import')
+            return redirect('inhabilitacion_import')
 
-        mapa = _mapear_columnas(df.columns, _COLUMNAS_BLOQUEO)
-        faltan = [c for c in ('mac_address', 'estado') if c not in mapa]
+        mapa = _mapear_columnas(df.columns, _COLUMNAS_INHABILITACION)
+        faltan = [c for c in ('mac_address', 'serial_number', 'estado') if c not in mapa]
         if faltan:
             messages.error(
                 request,
                 'Faltan columnas en el archivo: ' + ', '.join(faltan)
                 + '. Encabezados encontrados: ' + ', '.join(str(c) for c in df.columns),
             )
-            return redirect('bloqueo_import')
+            return redirect('inhabilitacion_import')
 
         from django.db import transaction
 
@@ -1260,14 +1254,17 @@ def bloqueo_import(request):
         for i, fila in df.iterrows():
             n = i + 2  # +2: fila 1 es encabezado, índice base 0
             mac = _texto(fila[mapa['mac_address']])
-            serial = _texto(fila[mapa['serial_number']]) if 'serial_number' in mapa else ''
-            estado = _parse_estado_bloqueo(fila[mapa['estado']])
+            serial = _texto(fila[mapa['serial_number']])
+            estado = _parse_estado_inhabilitacion(fila[mapa['estado']])
 
             if not mac:
                 errores.append(f'Fila {n}: falta MAC.')
                 continue
+            if not serial:
+                errores.append(f'Fila {n}: falta el número de serie (serial).')
+                continue
             if estado is None:
-                errores.append(f'Fila {n}: estado inválido (usa "bloqueado" o "desbloqueado").')
+                errores.append(f'Fila {n}: estado inválido (usa "inhabilitado" o "habilitado").')
                 continue
 
             key = mac.upper()
@@ -1301,10 +1298,10 @@ def bloqueo_import(request):
             creados = len(nuevos)
             actualizados = len(orden) - creados
 
-            # 4) Calcular qué cambia y preparar bloqueos + updates en bloque.
-            #    lock_status ya refleja el estado del último bloqueo, así que
-            #    comparamos contra él (sin consultar bloqueos por TV).
-            bloqueos_nuevos = []
+            # 4) Calcular qué cambia y preparar inhabilitaciones + updates en bloque.
+            #    inhabilitado ya refleja el estado de la última inhabilitación, así
+            #    que comparamos contra él (sin consultar inhabilitaciones por TV).
+            inhabilitaciones_nuevas = []
             tvs_update = []
             for k in orden:
                 d = deseado[k]
@@ -1312,24 +1309,24 @@ def bloqueo_import(request):
                 serial_cambia = bool(d['serial']) and tv.serial_number != d['serial']
                 if serial_cambia:
                     tv.serial_number = d['serial']
-                if d['estado'] != tv.lock_status:
-                    antes = tv.lock_status  # estado del que venía
-                    bloqueos_nuevos.append(Bloqueo(
+                if d['estado'] != tv.inhabilitado:
+                    antes = tv.inhabilitado  # estado del que venía
+                    inhabilitaciones_nuevas.append(Inhabilitacion(
                         televisor=tv,
                         mac_address=tv.mac_address,
                         serial_number=d['serial'] or tv.serial_number,
                         estado=d['estado'],
                     ))
-                    tv.lock_status = d['estado']
+                    tv.inhabilitado = d['estado']
                     tvs_update.append(tv)
                     cambiados.append((tv, antes))
                 elif serial_cambia:
                     tvs_update.append(tv)
 
-            if bloqueos_nuevos:
-                Bloqueo.objects.bulk_create(bloqueos_nuevos)
+            if inhabilitaciones_nuevas:
+                Inhabilitacion.objects.bulk_create(inhabilitaciones_nuevas)
             if tvs_update:
-                Televisor.objects.bulk_update(tvs_update, ['lock_status', 'serial_number'])
+                Televisor.objects.bulk_update(tvs_update, ['inhabilitado', 'serial_number'])
 
         resultado = {
             'creados': creados,
@@ -1347,10 +1344,10 @@ def bloqueo_import(request):
             'numero_credito': tv.numero_credito,
             'fecha': tv.fecha_sincronizar,
             'antes': antes,            # estado anterior
-            'despues': tv.lock_status,  # estado nuevo
+            'despues': tv.inhabilitado,  # estado nuevo
         } for tv, antes in cambiados]
 
-    return render(request, 'whaletv/bloqueo_import.html', {
+    return render(request, 'whaletv/inhabilitacion_import.html', {
         'resultado': resultado,
         'cambios': cambios,
         'n_cambios': len(cambios),
@@ -1358,18 +1355,18 @@ def bloqueo_import(request):
 
 
 @login_required
-def bloqueo_plantilla(request):
-    """Descarga una plantilla Excel (.xlsx) de ejemplo para importar bloqueos."""
+def inhabilitacion_plantilla(request):
+    """Descarga una plantilla Excel (.xlsx) de ejemplo para importar inhabilitaciones."""
     import io
 
     from openpyxl import Workbook
 
     wb = Workbook()
     ws = wb.active
-    ws.title = 'Bloqueos'
+    ws.title = 'Inhabilitaciones'
     ws.append(['serial_number', 'mac_address', 'estado'])
-    ws.append(['B4:04:29:7E:3A:EE', 'B4:04:29:7E:3A:EE', 'bloqueado'])
-    ws.append(['B4:04:29:7E:3A:FF', 'B4:04:29:7E:3A:FF', 'desbloqueado'])
+    ws.append(['B4:04:29:7E:3A:EE', 'B4:04:29:7E:3A:EE', 'inhabilitado'])
+    ws.append(['B4:04:29:7E:3A:FF', 'B4:04:29:7E:3A:FF', 'habilitado'])
     for col, ancho in zip('ABC', (22, 22, 16)):
         ws.column_dimensions[col].width = ancho
 
@@ -1381,5 +1378,5 @@ def bloqueo_plantilla(request):
         buffer.getvalue(),
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
-    response['Content-Disposition'] = 'attachment; filename="plantilla_bloqueos.xlsx"'
+    response['Content-Disposition'] = 'attachment; filename="plantilla_inhabilitaciones.xlsx"'
     return response

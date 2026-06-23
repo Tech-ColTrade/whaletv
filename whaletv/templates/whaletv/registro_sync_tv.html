@@ -12,10 +12,10 @@
     <div class="flex items-center gap-3 flex-wrap">
         <h2 class="text-lg font-bold text-gray-800">{{ mac }}</h2>
         {% if televisor %}
-            {% if televisor.lock_status %}
-                <span class="pill pill-lock">Bloqueado</span>
+            {% if televisor.inhabilitado %}
+                <span class="pill pill-lock">Inhabilitado</span>
             {% else %}
-                <span class="pill pill-unlock">Desbloqueado</span>
+                <span class="pill pill-unlock">Habilitado</span>
             {% endif %}
         {% else %}
             <span class="pill bg-gray-100 text-gray-500">Sin televisor registrado</span>
@@ -64,10 +64,10 @@
                 </tr>
                 <tr>
                     <td class="td">
-                        {% if televisor.lock_status %}
-                            <span class="pill pill-lock">Bloqueado</span>
+                        {% if televisor.inhabilitado %}
+                            <span class="pill pill-lock">Inhabilitado</span>
                         {% else %}
-                            <span class="pill pill-unlock">Desbloqueado</span>
+                            <span class="pill pill-unlock">Habilitado</span>
                         {% endif %}
                     </td>
                     <td class="td">{{ televisor.fecha_sincronizar|date:"d/m/Y" }}</td>
@@ -81,11 +81,11 @@
     {% endif %}
 </div>
 
-<!-- Desbloqueo manual -->
+<!-- Habilitación manual -->
 <div class="card mb-5">
     <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-            <h3 class="text-base font-bold text-gray-800">Desbloqueo manual</h3>
+            <h3 class="text-base font-bold text-gray-800">Habilitación manual</h3>
             <p class="text-sm text-gray-500 mt-0.5">Genera un Código Pin para esta MAC a partir del Código de Acceso.</p>
         </div>
         <button type="button" class="btn btn-primary" onclick="abrirPinModal()">Generar Código Pin</button>
@@ -102,8 +102,8 @@
         </a>
         {% if televisor %}
         <a href="{% url 'televisor_historico' televisor.pk %}" class="flex items-center justify-between px-4 py-3.5 hover:bg-gray-50 transition">
-            <span class="text-sm font-medium text-gray-700">Bloqueos</span>
-            <span class="flex items-center gap-3"><span class="pill pill-ok">{{ televisor.bloqueos.count }}</span><span class="text-gray-300">›</span></span>
+            <span class="text-sm font-medium text-gray-700">Inhabilitaciones</span>
+            <span class="flex items-center gap-3"><span class="pill pill-ok">{{ televisor.inhabilitaciones.count }}</span><span class="text-gray-300">›</span></span>
         </a>
         {% endif %}
         <a href="{% url 'registro_sync_tv_pincodes' mac %}" class="flex items-center justify-between px-4 py-3.5 hover:bg-gray-50 transition">
@@ -113,7 +113,7 @@
     </div>
 </div>
 
-<!-- ░░ Modal: Desbloquear Manual / Generar Código Pin ░░ -->
+<!-- ░░ Modal: Habilitar Manual / Generar Código Pin ░░ -->
 <div id="pin-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
     <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="cerrarPinModal()"></div>
 
@@ -122,7 +122,7 @@
         <div class="bg-gradient-to-r from-whale to-whale-dark px-5 py-4 flex items-center gap-3">
             <div class="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center text-lg">🔓</div>
             <div class="text-white">
-                <h3 class="font-extrabold leading-tight">Desbloquear Manual</h3>
+                <h3 class="font-extrabold leading-tight">Habilitar Manual</h3>
                 <p class="text-xs text-white/80">{{ mac }}</p>
             </div>
         </div>
@@ -163,15 +163,15 @@
                         ⟳ Listo y sincronizar
                     </button>
                 </div>
-                <p class="text-[0.7rem] text-gray-400 mt-2">Al pulsar “Listo” se aplica el estado y la fecha del bloqueo en el portal.</p>
+                <p class="text-[0.7rem] text-gray-400 mt-2">Al pulsar “Listo” se aplica el estado y la fecha de la inhabilitación en el portal.</p>
             </div>
         </div>
     </div>
 </div>
 
 <script>
-    const PIN_URL = "{% url 'desbloquear_manual' mac %}";
-    const SYNC_URL = "{% url 'desbloquear_sincronizar' mac %}";
+    const PIN_URL = "{% url 'habilitar_manual' mac %}";
+    const SYNC_URL = "{% url 'habilitar_sincronizar' mac %}";
     const TIENE_TV = {% if televisor %}true{% else %}false{% endif %};
     const CSRF = "{{ csrf_token }}";
 
@@ -241,7 +241,7 @@
         const err = document.getElementById('pin-sync-error');
         err.classList.add('hidden');
         document.getElementById('pin-loading-text').textContent =
-            'Sincronizando estado y fecha del bloqueo en el portal…';
+            'Sincronizando estado y fecha de la inhabilitación en el portal…';
         _mostrarPaso('loading');
 
         try {

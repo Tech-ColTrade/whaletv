@@ -23,9 +23,9 @@ class ResultadoSync:
     ok: bool = False
     error: str = ''
     log: list = field(default_factory=list)
-    remoto_bloqueado: bool | None = None
+    remoto_inhabilitado: bool | None = None
     remoto_next_date: str = ''
-    local_bloqueado: bool | None = None
+    local_inhabilitado: bool | None = None
     cambiaria: bool | None = None
     aplicado: bool = False
 
@@ -196,15 +196,15 @@ def _abrir_detalle_por_mac(driver, wait, cfg, mac, res, max_paginas=20):
 
 
 def _leer_estado_remoto(driver, res, diagnostico=False):
-    """Lee del Detail si está bloqueado y la Next Installment Date.
+    """Lee del Detail si está inhabilitado y la Next Installment Date.
 
     Si diagnostico=True, vuelca el HTML de la celda de Lock Status y guarda un
     screenshot para calibrar los selectores.
     """
-    bloqueado = None
+    inhabilitado = None
 
-    # El estado se lee del icono: #icon-lock = bloqueado (div .lock),
-    # #icon-unlock = desbloqueado (div .unlockChange). Leemos el primer <use>
+    # El estado se lee del icono: #icon-lock = inhabilitado (div .lock),
+    # #icon-unlock = habilitado (div .unlockChange). Leemos el primer <use>
     # con 'lock'/'unlock' dentro de la tabla de Lock Status.
     try:
         uses = driver.find_elements(By.CSS_SELECTOR, '.save-mode use')
@@ -212,14 +212,14 @@ def _leer_estado_remoto(driver, res, diagnostico=False):
         for u in uses:
             h = (u.get_attribute('xlink:href') or u.get_attribute('href') or '').lower()
             if 'unlock' in h:
-                bloqueado = False
+                inhabilitado = False
                 href = h
                 break
             if 'lock' in h:
-                bloqueado = True
+                inhabilitado = True
                 href = h
                 break
-        res.paso(f'Icono lock remoto: {href or "(no encontrado)"} -> bloqueado={bloqueado}')
+        res.paso(f'Icono lock remoto: {href or "(no encontrado)"} -> inhabilitado={inhabilitado}')
     except Exception as e:  # noqa: BLE001
         res.paso(f'No pude leer el icono de lock: {e}')
 
@@ -230,9 +230,9 @@ def _leer_estado_remoto(driver, res, diagnostico=False):
         except Exception:  # noqa: BLE001
             pass
 
-    res.remoto_bloqueado = bloqueado
+    res.remoto_inhabilitado = inhabilitado
     res.remoto_next_date = ''
-    return bloqueado
+    return inhabilitado
 
 
 def _set_lock_select(driver, wait, deseado, res):
@@ -348,7 +348,7 @@ def _aplicar_estado_remoto(driver, wait, televisor, res, sincronizar_fecha=True)
         (By.XPATH, "//button[.//span[normalize-space(text())='Save']]")
     ))
 
-    deseado = 'Lock' if televisor.lock_status else 'Unlock'
+    deseado = 'Lock' if televisor.inhabilitado else 'Unlock'
     _set_lock_select(driver, wait, deseado, res)
 
     if sincronizar_fecha and televisor.fecha_sincronizar:
@@ -387,7 +387,7 @@ def _procesar_televisor(driver, wait, cfg, televisor, res, dry_run, sincronizar_
 
     Mutates `res`. Asume que ya se hizo login en `driver`.
     """
-    res.local_bloqueado = bool(televisor.lock_status)
+    res.local_inhabilitado = bool(televisor.inhabilitado)
 
     encontrado = _abrir_detalle_por_mac(driver, wait, cfg, televisor.mac_address, res)
     if not encontrado:
@@ -399,11 +399,11 @@ def _procesar_televisor(driver, wait, cfg, televisor, res, dry_run, sincronizar_
 
     if remoto is None:
         res.cambiaria = None
-        res.paso('No se pudo determinar el estado remoto de bloqueo.')
+        res.paso('No se pudo determinar el estado remoto de inhabilitación.')
     else:
-        res.cambiaria = remoto != res.local_bloqueado
-        estado_local = 'Bloqueado' if res.local_bloqueado else 'Desbloqueado'
-        estado_remoto = 'Bloqueado' if remoto else 'Desbloqueado'
+        res.cambiaria = remoto != res.local_inhabilitado
+        estado_local = 'Inhabilitado' if res.local_inhabilitado else 'Habilitado'
+        estado_remoto = 'Inhabilitado' if remoto else 'Habilitado'
         res.paso(f'Local: {estado_local} | Remoto: {estado_remoto}')
         if res.cambiaria:
             res.paso('=> El estado remoto DEBERÍA cambiar para igualar al local.')
@@ -419,8 +419,8 @@ def _procesar_televisor(driver, wait, cfg, televisor, res, dry_run, sincronizar_
             driver, wait, televisor, res, sincronizar_fecha=sincronizar_fecha
         )
         nuevo = _leer_estado_remoto(driver, res)
-        res.remoto_bloqueado = nuevo
-        res.cambiaria = (nuevo is not None and nuevo != res.local_bloqueado)
+        res.remoto_inhabilitado = nuevo
+        res.cambiaria = (nuevo is not None and nuevo != res.local_inhabilitado)
 
     res.ok = True
     return res
@@ -556,7 +556,7 @@ def sincronizar_televisor(televisor, dry_run=True, headless=None, sincronizar_fe
         headless = cfg.get('HEADLESS', False)
 
     res = ResultadoSync()
-    res.local_bloqueado = bool(televisor.lock_status)
+    res.local_inhabilitado = bool(televisor.inhabilitado)
 
     driver = None
     try:
@@ -694,25 +694,25 @@ def ejecutar_job(job_id, workers=4, sincronizar_fecha=True, dry_run=False):
                     if dry_run:
                         # Validación: comparar estado del portal con el local.
                         def _txt(b):
-                            return '¿?' if b is None else ('Bloqueado' if b else 'Desbloqueado')
+                            return '¿?' if b is None else ('Inhabilitado' if b else 'Habilitado')
                         coincide = (
-                            res.remoto_bloqueado is not None
-                            and res.remoto_bloqueado == res.local_bloqueado
+                            res.remoto_inhabilitado is not None
+                            and res.remoto_inhabilitado == res.local_inhabilitado
                         )
                         mensaje = res.error if not res.ok else (
-                            f'Portal: {_txt(res.remoto_bloqueado)} | '
-                            f'App: {_txt(res.local_bloqueado)}'
+                            f'Portal: {_txt(res.remoto_inhabilitado)} | '
+                            f'App: {_txt(res.local_inhabilitado)}'
                         )
                         SyncJobItem.objects.filter(pk=item_pk).update(
                             estado=estado,
-                            remoto_bloqueado=res.remoto_bloqueado,
-                            local_bloqueado=res.local_bloqueado,
+                            remoto_inhabilitado=res.remoto_inhabilitado,
+                            local_inhabilitado=res.local_inhabilitado,
                             coincide=coincide if res.ok else None,
                             mensaje=mensaje[:500],
                         )
                     else:
                         mensaje = res.error if not res.ok else (
-                            f'{"Bloqueado" if res.remoto_bloqueado else "Desbloqueado"}'
+                            f'{"Inhabilitado" if res.remoto_inhabilitado else "Habilitado"}'
                             + (' · aplicado' if res.aplicado else ' · sin cambios')
                         )
                         SyncJobItem.objects.filter(pk=item_pk).update(
@@ -724,7 +724,7 @@ def ejecutar_job(job_id, workers=4, sincronizar_fecha=True, dry_run=False):
                                 usuario_email=job_usuario_email,
                                 televisor=tv,
                                 mac_address=tv.mac_address,
-                                lock_status=bool(tv.lock_status),
+                                inhabilitado=bool(tv.inhabilitado),
                                 aplicado=res.aplicado,
                                 tipo='masivo',
                             )

@@ -8,7 +8,7 @@
 <div class="flex items-center justify-between gap-4 flex-wrap mb-5">
     <div>
         <h2 class="text-xl font-bold text-gray-800">Códigos Pin generados</h2>
-        <p class="text-sm text-gray-500">MAC, Código de Acceso y Código Pin de cada desbloqueo manual · {{ total }} registro{{ total|pluralize }}.</p>
+        <p class="text-sm text-gray-500">MAC, Código de Acceso y Código Pin de cada habilitación manual · {{ total }} registro{{ total|pluralize }}.</p>
     </div>
     {% if total %}
     <a href="{% url 'pincode_export' %}{% if query %}?q={{ query|urlencode }}{% endif %}" class="btn btn-primary">⬇ Exportar todo a Excel</a>

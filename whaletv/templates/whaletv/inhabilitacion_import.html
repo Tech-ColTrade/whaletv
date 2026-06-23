@@ -69,7 +69,7 @@
                     <thead>
                         <tr>
                             <th class="th">Dirección MAC</th>
-                            <th class="th">Número de serie</th>
+                            <th class="th">Número de serial</th>
                             <th class="th">N° Crédito</th>
                             <th class="th">Fecha portal</th>
                             <th class="th">Cambio de estado</th>
@@ -85,15 +85,15 @@
                             <td class="td">
                                 <span class="inline-flex items-center gap-2">
                                     {% if c.antes %}
-                                        <span class="pill pill-lock">Bloqueado</span>
+                                        <span class="pill pill-lock">Inhabilitado</span>
                                     {% else %}
-                                        <span class="pill pill-unlock">Desbloqueado</span>
+                                        <span class="pill pill-unlock">Habilitado</span>
                                     {% endif %}
                                     <span class="text-gray-400">→</span>
                                     {% if c.despues %}
-                                        <span class="pill pill-lock">Bloqueado</span>
+                                        <span class="pill pill-lock">Inhabilitado</span>
                                     {% else %}
-                                        <span class="pill pill-unlock">Desbloqueado</span>
+                                        <span class="pill pill-unlock">Habilitado</span>
                                     {% endif %}
                                 </span>
                             </td>
@@ -107,7 +107,7 @@
     {% endif %}
 
     <div>
-        <a href="{% url 'bloqueo_import' %}" class="btn btn-ghost">Importar otro archivo</a>
+        <a href="{% url 'inhabilitacion_import' %}" class="btn btn-ghost">Importar otro archivo</a>
     </div>
 </div>
 
@@ -140,13 +140,13 @@
     <h2 class="text-xl font-bold text-gray-800 mb-2">Enrolar Estado</h2>
     <p class="text-sm text-gray-600 mb-4">Sube un archivo <b>Excel (.xlsx)</b> (también acepta CSV) con el <b>Serial</b>, la
        <b>MAC</b> y el <b>estado</b> de cada televisor. Si el TV no existe (por su <b>MAC</b>) se <b>crea</b>; el estado
-       fija si queda <b>bloqueado</b> o <b>desbloqueado</b>.</p>
+       fija si queda <b>inhabilitado</b> o <b>habilitado</b>.</p>
 
     <table class="w-full text-sm border border-gray-200 mb-4">
         <tr class="bg-gray-50"><th class="border border-gray-200 px-3 py-2 text-left">Columna</th><th class="border border-gray-200 px-3 py-2 text-left">Ejemplo</th><th class="border border-gray-200 px-3 py-2 text-left">Obligatoria</th></tr>
-        <tr><td class="border border-gray-200 px-3 py-2">serial_number</td><td class="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:EE</td><td class="border border-gray-200 px-3 py-2">No</td></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">serial_number</td><td class="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:EE</td><td class="border border-gray-200 px-3 py-2">Sí</td></tr>
         <tr><td class="border border-gray-200 px-3 py-2">mac_address</td><td class="border border-gray-200 px-3 py-2">B4:04:29:7E:3A:EE</td><td class="border border-gray-200 px-3 py-2">Sí (identifica el TV)</td></tr>
-        <tr><td class="border border-gray-200 px-3 py-2">estado</td><td class="border border-gray-200 px-3 py-2">bloqueado / desbloqueado</td><td class="border border-gray-200 px-3 py-2">Sí</td></tr>
+        <tr><td class="border border-gray-200 px-3 py-2">estado</td><td class="border border-gray-200 px-3 py-2">inhabilitado / habilitado</td><td class="border border-gray-200 px-3 py-2">Sí</td></tr>
     </table>
 
     <form method="post" enctype="multipart/form-data" class="space-y-4">
@@ -154,7 +154,7 @@
         <input type="file" name="archivo" accept=".csv,.xlsx,.xls" required class="block text-sm">
         <div class="flex gap-2">
             <button type="submit" class="btn btn-primary">Importar</button>
-            <a href="{% url 'bloqueo_plantilla' %}" class="btn btn-ghost">Descargar plantilla Excel</a>
+            <a href="{% url 'inhabilitacion_plantilla' %}" class="btn btn-ghost">Descargar plantilla Excel</a>
             <a href="{% url 'televisor_list' %}" class="btn btn-ghost">Volver</a>
         </div>
     </form>
