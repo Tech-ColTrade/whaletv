@@ -19,7 +19,12 @@
       "Bash(python -c \"import docx; print\\('python-docx OK'\\)\")",
       "Bash(python _fix_manual.py)",
       "Bash(rm -f _manual_dump.txt _runs.txt _runs2.txt _fix_report.txt _verif.txt _verif2.txt _fix_manual.py)",
-      "Read(//c/c/Users/Julian Herreño/OneDrive - Colombian Trade Company SAS/DATA/02. AREAS/DATA/Julian Estif Herreno Palacios/whaletv/**)"
+      "Read(//c/c/Users/Julian Herreño/OneDrive - Colombian Trade Company SAS/DATA/02. AREAS/DATA/Julian Estif Herreno Palacios/whaletv/**)",
+      "Bash(pandoc --version)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)",
+      "Bash(PYTHONIOENCODING=utf-8 python apply_changes.py)",
+      "Bash(PYTHONIOENCODING=utf-8 cat users/models.py)",
+      "Bash(PYTHONIOENCODING=utf-8 grep -n \"DB_\\\\|DATABASE\\\\|dj_database\\\\|ENGINE\" core/settings.py)"
     ]
   }
 }

@@ -17,6 +17,7 @@ urlpatterns = [
     path('sync/<int:pk>/cancelar/', views.sync_cancelar, name='sync_cancelar_job'),
     path('sync/<int:pk>/', views.sync_progreso, name='sync_progreso'),
     path('sync/<int:pk>/estado/', views.sync_progreso_api, name='sync_progreso_api'),
+    path('sync/<int:pk>/estado-tv/', views.sync_estado, name='sync_estado'),
     path('sync/<int:pk>/exportar/', views.sync_job_export, name='sync_job_export'),
     path('sincronizaciones/', views.registro_sync_list, name='registro_sync_list'),
     path('sincronizaciones/exportar/', views.registro_sync_export, name='registro_sync_export'),

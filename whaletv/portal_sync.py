@@ -392,7 +392,7 @@ def _procesar_televisor(driver, wait, cfg, televisor, res, dry_run, sincronizar_
     encontrado = _abrir_detalle_por_mac(driver, wait, cfg, televisor.mac_address, res)
     if not encontrado:
         res.ok = False
-        res.error = f'No se encontró el MAC {televisor.mac_address} en el portal.'
+        res.error = f'No se encontró el MAC {televisor.mac_address}.'
         return res
 
     remoto = _leer_estado_remoto(driver, res, diagnostico=dry_run)
@@ -525,7 +525,7 @@ def generar_pin_code(mac, passcode, headless=None):
         encontrado = _abrir_detalle_por_mac(driver, wait, cfg, mac, res)
         if not encontrado:
             res.ok = False
-            res.error = f'No se encontró el MAC {mac} en el portal.'
+            res.error = f'No se encontró el MAC {mac}.'
             return res, ''
 
         pin = _generar_pin_code(driver, wait, passcode, res)
@@ -534,7 +534,7 @@ def generar_pin_code(mac, passcode, headless=None):
             res.paso(f'Pin Code generado: {pin}')
         else:
             res.ok = False
-            res.error = 'El portal no devolvió un Pin Code (revisa el Passcode).'
+            res.error = 'No se devolvió un Código Pin (revisa el Código de Acceso).'
         return res, pin
     except Exception as e:  # noqa: BLE001
         res.ok = False

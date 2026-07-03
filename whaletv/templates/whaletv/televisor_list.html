@@ -12,11 +12,13 @@
             {% csrf_token %}
             <button type="submit" class="btn btn-val">Validación masiva</button>
         </form>
+        {% comment %} Botón de sincronización manual oculto temporalmente (la sincronización ahora es automática). La lógica se conserva.
         <form method="post" action="{% url 'sync_iniciar' %}"
-              onsubmit="return confirm('Esto APLICARÁ el estado de TODOS los televisores en el portal real de Locking System, en segundo plano. ¿Continuar?');">
+              onsubmit="return confirm('Esto APLICARÁ el estado de TODOS los televisores, en segundo plano. ¿Continuar?');">
             {% csrf_token %}
             <button type="submit" class="btn btn-primary">⟳ Sincronizar todo</button>
         </form>
+        {% endcomment %}
         <a href="{% url 'televisor_import' %}" class="btn btn-ghost">Enrolar Televisores</a>
         <a href="{% url 'inhabilitacion_import' %}" class="btn btn-ghost">Enrolar Estado</a>
         <a href="{% url 'registro_sync_export' %}" class="btn btn-ghost">⬇ Exportar sincronizaciones</a>

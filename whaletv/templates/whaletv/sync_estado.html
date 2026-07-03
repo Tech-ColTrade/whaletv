@@ -1,0 +1,90 @@
+{% extends 'whaletv/base.html' %}
+
+{% block title %}Sincronizando estado · Locking System{% endblock %}
+{% block nav_tv %}navlink-active{% endblock %}
+{% block breadcrumb %}<a href="{% url 'televisor_list' %}" class="text-whale">Televisores</a> / Sincronizando estado{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto"
+     data-url="{% url 'sync_progreso_api' job.pk %}"
+     {% if tv_pk %}data-volver="{% url 'televisor_historico' tv_pk %}"{% endif %}>
+
+  <div class="card">
+    <div class="flex items-center gap-3 mb-5">
+      <span id="dot" class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+      <h2 id="titulo" class="text-lg font-bold text-gray-800">Sincronizando estado…</h2>
+    </div>
+
+    <!-- Barra de carga -->
+    <div class="w-full h-3 rounded-full bg-gray-100 overflow-hidden">
+      <div id="bar" class="h-full rounded-full bg-gradient-to-r from-whale to-whale-dark transition-all duration-500" style="width:0%"></div>
+    </div>
+
+    <!-- Mensaje final -->
+    <div id="final" class="hidden mt-5 text-sm font-semibold"></div>
+
+    <!-- Acciones -->
+    <div class="mt-8 pt-5 border-t border-gray-100 flex flex-wrap justify-end gap-2">
+      <a href="{% url 'televisor_list' %}" class="btn btn-ghost">← Volver a televisores</a>
+      <a id="volver-btn" href="#" class="btn btn-primary hidden">Ver histórico</a>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const card = document.querySelector('[data-url]');
+  const url = card.dataset.url;
+  const volver = card.dataset.volver || '';
+  const $ = id => document.getElementById(id);
+
+  async function tick() {
+    let d;
+    try { d = await (await fetch(url)).json(); }
+    catch (e) { setTimeout(tick, 2000); return; }
+
+    // Mientras corre, la barra avanza; deja al menos algo visible.
+    $('bar').style.width = Math.max(d.porcentaje, d.terminado ? d.porcentaje : 8) + '%';
+
+    if (!d.terminado) { setTimeout(tick, 1500); return; }
+
+    $('dot').classList.remove('animate-pulse');
+    $('bar').style.width = '100%';
+
+    if (volver) {
+      const btn = $('volver-btn');
+      btn.href = volver;
+      btn.classList.remove('hidden');
+    }
+
+    const f = $('final');
+    f.classList.remove('hidden');
+
+    if (d.estado === 'cancelado') {
+      $('dot').className = 'w-2.5 h-2.5 rounded-full bg-gray-400';
+      $('titulo').textContent = 'Sincronización cancelada';
+      f.className = 'hidden mt-5 text-sm font-semibold text-gray-500';
+      f.classList.remove('hidden');
+      f.textContent = 'La sincronización se canceló.';
+    } else if (d.error > 0) {
+      $('dot').className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
+      $('bar').classList.remove('from-whale', 'to-whale-dark');
+      $('bar').classList.add('bg-rose-500');
+      $('titulo').textContent = 'No se pudo sincronizar el estado';
+      f.className = 'mt-5 text-sm font-semibold text-rose-600';
+      f.textContent = 'Ocurrió un error al aplicar el estado. Intenta de nuevo.';
+    } else {
+      $('dot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
+      $('bar').classList.remove('from-whale', 'to-whale-dark');
+      $('bar').classList.add('bg-emerald-500');
+      $('titulo').textContent = 'Estado sincronizado';
+      f.className = 'mt-5 text-sm font-semibold text-emerald-600';
+      f.textContent = d.aplicados > 0
+        ? 'El estado se aplicó correctamente.'
+        : 'Ya tenía este estado; no hubo cambios.';
+    }
+  }
+  tick();
+})();
+</script>
+{% endblock %}

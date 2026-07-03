@@ -27,13 +27,13 @@
 
 <div class="card mb-5">
     <h3 class="text-base font-bold text-gray-800 mb-4">Registrar estado</h3>
-    <form method="post" class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+    <form method="post" class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end" id="form-registrar">
         {% csrf_token %}
         <div>
             <label class="lbl">Estado</label>
             {{ form.estado }}
         </div>
-        <button type="submit" class="btn btn-primary">Registrar</button>
+        <button type="submit" class="btn btn-primary" id="btn-registrar">Guardar</button>
     </form>
     {% if form.errors %}
         <div class="msg msg-error mt-3">{{ form.errors }}</div>
@@ -79,8 +79,128 @@
     {% endif %}
 </div>
 
+<!-- Modal de sincronización -->
+<div id="sync-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/50 p-4">
+    <div class="card w-full max-w-md text-center">
+        <h3 id="sync-title" class="text-lg font-bold text-gray-800 mb-1">Sincronizando estado</h3>
+
+        <div id="sync-pct" class="text-5xl font-extrabold text-whale tabular-nums my-4">0%</div>
+
+        <div class="w-full h-3 rounded-full bg-gray-100 overflow-hidden">
+            <div id="sync-bar" class="h-full rounded-full bg-gradient-to-r from-whale to-whale-dark transition-all duration-300" style="width:0%"></div>
+        </div>
+
+        <button id="sync-close" class="btn btn-primary mt-6 hidden">Cerrar</button>
+    </div>
+</div>
+
 <script>
     document.querySelectorAll('form input:not([type=checkbox]):not([type=submit]), form select')
         .forEach(el => el.classList.add('inp'));
+
+    (function () {
+        const form = document.getElementById('form-registrar');
+        if (!form) return;
+
+        const modal = document.getElementById('sync-modal');
+        const title = document.getElementById('sync-title');
+        const pctEl = document.getElementById('sync-pct');
+        const bar   = document.getElementById('sync-bar');
+        const closeBtn = document.getElementById('sync-close');
+        const btn = document.getElementById('btn-registrar');
+
+        let mostrado = 0;      // % que se ve en pantalla
+        let objetivo = 0;      // % hacia el que avanza
+        let terminado = false;
+
+        function pintar() {
+            pctEl.textContent = Math.round(mostrado) + '%';
+            bar.style.width = mostrado + '%';
+        }
+
+        // Anima el número suavemente hacia 'objetivo' (~60 fps).
+        function animar() {
+            if (mostrado < objetivo) {
+                mostrado = Math.min(objetivo, mostrado + Math.max(0.5, (objetivo - mostrado) * 0.12));
+                pintar();
+            }
+            if (!(terminado && mostrado >= 100)) requestAnimationFrame(animar);
+        }
+
+        function abrirModal() {
+            mostrado = 0; objetivo = 8; terminado = false;
+            pintar();
+            title.textContent = 'Sincronizando estado';
+            title.className = 'text-lg font-bold text-gray-800 mb-1';
+            closeBtn.classList.add('hidden');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            requestAnimationFrame(animar);
+        }
+
+        function completar(ok) {
+            terminado = true;
+            objetivo = 100; mostrado = 100; pintar();
+            if (ok) {
+                title.textContent = '✓ Completado';
+                title.className = 'text-lg font-bold text-emerald-600 mb-1';
+            } else {
+                title.textContent = 'No se pudo sincronizar';
+                title.className = 'text-lg font-bold text-rose-600 mb-1';
+                bar.className = 'h-full rounded-full bg-rose-500 transition-all duration-300';
+                pctEl.className = 'text-5xl font-extrabold text-rose-600 tabular-nums my-4';
+            }
+            closeBtn.classList.remove('hidden');
+        }
+
+        // Al cerrar, recargamos para reflejar el nuevo estado/registro.
+        closeBtn.addEventListener('click', function () {
+            window.location.reload();
+        });
+
+        async function seguirJob(apiUrl) {
+            try {
+                const d = await (await fetch(apiUrl)).json();
+                // Mientras corre, dejamos que suba hasta 90 como máximo.
+                if (!d.terminado) {
+                    objetivo = Math.min(90, Math.max(objetivo, d.porcentaje || 0, objetivo + 6));
+                    setTimeout(() => seguirJob(apiUrl), 1200);
+                    return;
+                }
+                completar(d.error === 0 && d.estado !== 'cancelado');
+            } catch (e) {
+                setTimeout(() => seguirJob(apiUrl), 1500);
+            }
+        }
+
+        form.addEventListener('submit', async function (e) {
+            e.preventDefault();
+            btn.disabled = true;
+            btn.classList.add('opacity-60', 'cursor-wait');
+            abrirModal();
+
+            try {
+                const resp = await fetch(form.action || window.location.href, {
+                    method: 'POST',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    body: new FormData(form),
+                });
+                const data = await resp.json();
+                if (data.ok && data.api) {
+                    seguirJob(data.api);
+                } else if (data.ok) {
+                    // Se guardó pero no se lanzó job (caso raro): damos por hecho.
+                    completar(true);
+                } else {
+                    completar(false);
+                }
+            } catch (err) {
+                completar(false);
+            } finally {
+                btn.disabled = false;
+                btn.classList.remove('opacity-60', 'cursor-wait');
+            }
+        });
+    })();
 </script>
 {% endblock %}

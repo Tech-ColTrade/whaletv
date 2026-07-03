@@ -34,11 +34,13 @@
                 {% csrf_token %}
                 <button type="submit" class="btn btn-ghost">Validar</button>
             </form>
+            {% comment %} Botón de sincronización manual oculto temporalmente (la sincronización ahora es automática). La lógica se conserva.
             <form method="post" action="{% url 'televisor_sincronizar' televisor.pk %}"
-                  onsubmit="return confirm('Esto APLICARÁ el estado en el portal real de Locking System (cambia el TV). ¿Continuar?');">
+                  onsubmit="return confirm('Esto APLICARÁ el estado (cambia el TV). ¿Continuar?');">
                 {% csrf_token %}
                 <button type="submit" class="btn btn-primary">Sincronizar</button>
             </form>
+            {% endcomment %}
         </div>
         {% endif %}
     </div>
@@ -59,7 +61,7 @@
                 </tr>
                 <tr>
                     <th class="th">Estado</th>
-                    <th class="th">Fecha portal</th>
+                    <th class="th">Fecha</th>
                     <th class="th">Registrado</th>
                 </tr>
                 <tr>
@@ -131,7 +133,7 @@
             <!-- Paso 1: pedir Passcode -->
             <div id="pin-step-form">
                 <p class="text-sm text-gray-600 mb-3">
-                    Ingresa el <b>Código de Acceso</b>. Lo enviaremos al portal de Locking System para
+                    Ingresa el <b>Código de Acceso</b>. Lo usaremos para
                     generar el <b>Código Pin</b> de esta MAC.
                 </p>
                 <label class="lbl">Código de Acceso</label>
@@ -146,7 +148,7 @@
             <!-- Paso 2: cargando -->
             <div id="pin-step-loading" class="hidden text-center py-6">
                 <div class="mx-auto w-10 h-10 border-4 border-whale/30 border-t-whale rounded-full animate-spin"></div>
-                <p id="pin-loading-text" class="text-sm text-gray-600 mt-4">Generando el Código Pin en el portal…</p>
+                <p id="pin-loading-text" class="text-sm text-gray-600 mt-4">Generando el Código Pin…</p>
                 <p class="text-xs text-gray-400 mt-1">Esto puede tardar unos segundos, no cierres la ventana.</p>
             </div>
 
@@ -163,7 +165,7 @@
                         ⟳ Listo y sincronizar
                     </button>
                 </div>
-                <p class="text-[0.7rem] text-gray-400 mt-2">Al pulsar “Listo” se aplica el estado y la fecha de la inhabilitación en el portal.</p>
+                <p class="text-[0.7rem] text-gray-400 mt-2">Al pulsar “Listo” se aplica el estado y la fecha de la inhabilitación.</p>
             </div>
         </div>
     </div>
@@ -201,7 +203,7 @@
             err.classList.remove('hidden');
             return;
         }
-        document.getElementById('pin-loading-text').textContent = 'Generando el Código Pin en el portal…';
+        document.getElementById('pin-loading-text').textContent = 'Generando el Código Pin…';
         _mostrarPaso('loading');
 
         try {
@@ -241,7 +243,7 @@
         const err = document.getElementById('pin-sync-error');
         err.classList.add('hidden');
         document.getElementById('pin-loading-text').textContent =
-            'Sincronizando estado y fecha de la inhabilitación en el portal…';
+            'Sincronizando estado y fecha de la inhabilitación…';
         _mostrarPaso('loading');
 
         try {

@@ -8,6 +8,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
 from .forms import InhabilitacionForm, TelevisorForm
 from .models import Inhabilitacion, PinCodeGenerado, RegistroSync, SyncJob, SyncJobItem, Televisor
@@ -132,7 +133,7 @@ def televisor_validar(request, pk):
             messages.warning(
                 request,
                 f'El televisor {televisor.mac_address} está '
-                f'{estado(resultado.remoto_inhabilitado)} en el portal, pero '
+                f'{estado(resultado.remoto_inhabilitado)} de forma remota, pero '
                 f'{estado(resultado.local_inhabilitado)} en la app. '
                 'Conviene sincronizar para que coincidan.',
             )
@@ -140,7 +141,7 @@ def televisor_validar(request, pk):
             messages.success(
                 request,
                 f'El televisor {televisor.mac_address} está '
-                f'{estado(resultado.remoto_inhabilitado)} en el portal, igual que en la app. '
+                f'{estado(resultado.remoto_inhabilitado)} de forma remota, igual que en la app. '
                 'No hay nada que sincronizar.',
             )
     else:
@@ -180,14 +181,14 @@ def televisor_sincronizar(request, pk):
             fecha = televisor.fecha_sincronizar
             messages.success(
                 request,
-                f'[{televisor.mac_address}] SINCRONIZADO en el portal → '
+                f'[{televisor.mac_address}] SINCRONIZADO → '
                 f'quedó {estado(resultado.remoto_inhabilitado)}'
                 + (f' · fecha {fecha:%d/%m/%Y}' if fecha else ''),
             )
         else:
             messages.success(
                 request,
-                f'[{televisor.mac_address}] Ya estaba igual en el portal '
+                f'[{televisor.mac_address}] Ya estaba igual '
                 f'({estado(resultado.remoto_inhabilitado)}), no se cambió nada.',
             )
     else:
@@ -245,6 +246,64 @@ def televisor_sincronizar_todos(request):
         )
 
     return redirect('televisor_list')
+
+
+def _lanzar_sync_job(request, televisores):
+    """Crea y lanza en segundo plano un SyncJob para los televisores dados.
+
+    Reutiliza la infraestructura de sincronización masiva (barra de progreso).
+    Devuelve (job, ya_activo):
+      - (job, False)  → se creó un job nuevo y está corriendo.
+      - (job, True)   → ya había un job activo; se devuelve ese (no se duplica).
+      - (None, False) → no había televisores que sincronizar.
+    """
+    import datetime
+    import threading
+
+    from django.utils import timezone
+
+    from .portal_sync import ejecutar_job
+
+    televisores = list(televisores)
+    if not televisores:
+        return None, False
+
+    # Auto-recupera jobs "colgados": si quedó activo pero sin actividad por
+    # varios minutos (server reiniciado / hilo muerto), lo damos por cancelado
+    # para no bloquear nuevas sincronizaciones.
+    limite = timezone.now() - datetime.timedelta(minutes=10)
+    SyncJob.objects.filter(
+        estado__in=SyncJob.ACTIVOS, actualizado__lt=limite
+    ).update(
+        estado='cancelado',
+        terminado=timezone.now(),
+        error='Cancelado automáticamente (sin actividad).',
+    )
+
+    # Si ya hay una realmente en curso, vamos a su progreso en vez de duplicar.
+    activo = SyncJob.objects.filter(estado__in=SyncJob.ACTIVOS).first()
+    if activo:
+        return activo, True
+
+    # 1 navegador por TV, con un tope configurable (WHALETV_PORTAL['MAX_WORKERS']).
+    tope = int(settings.WHALETV_PORTAL.get('MAX_WORKERS', 6))
+    workers = max(1, min(len(televisores), tope))
+
+    job = SyncJob.objects.create(
+        total=len(televisores),
+        workers=workers,
+        usuario=request.user,
+        usuario_email=getattr(request.user, 'email', '') or '',
+    )
+    SyncJobItem.objects.bulk_create([
+        SyncJobItem(job=job, televisor=tv, mac=tv.mac_address) for tv in televisores
+    ])
+
+    hilo = threading.Thread(
+        target=ejecutar_job, args=(job.pk, workers), daemon=True,
+    )
+    hilo.start()
+    return job, False
 
 
 @login_required
@@ -473,6 +532,18 @@ def sync_progreso(request, pk):
 
 
 @login_required
+def sync_estado(request, pk):
+    """Barra de progreso simple para la sincronización de un solo televisor.
+
+    Reusa el mismo job y API de polling que la masiva, pero con una vista
+    ligera ('Sincronizando estado'), no el anillo de la sincronización masiva.
+    """
+    job = get_object_or_404(SyncJob, pk=pk)
+    tv_pk = request.GET.get('tv') or ''
+    return render(request, 'whaletv/sync_estado.html', {'job': job, 'tv_pk': tv_pk})
+
+
+@login_required
 def sync_progreso_api(request, pk):
     """Devuelve el progreso del job en JSON (para el polling)."""
     job = get_object_or_404(SyncJob, pk=pk)
@@ -567,7 +638,7 @@ def sync_job_export(request, pk):
     if job.tipo == 'validacion':
         ws.title = 'No coinciden'
         _excel_header(ws, ['Dirección MAC', 'Serial Number', 'N° Crédito',
-                           'Estado en el portal', 'Estado en la app'])
+                           'Estado remoto', 'Estado en la app'])
         for item in items.filter(estado='ok', coincide=False):
             tv = item.televisor
             ws.append([
@@ -728,7 +799,7 @@ def pincode_export(request):
     ws = wb.active
     ws.title = 'Pin Codes'
 
-    headers = ['Fecha', 'Mac Address', 'Passcode', 'Pin Code', 'Quién lo generó']
+    headers = ['Fecha', 'Mac Address', 'Código de acceso', 'Código Pin', 'Quién lo generó']
     ws.append(headers)
     header_fill = PatternFill('solid', fgColor='F6186A')
     header_font = Font(bold=True, color='FFFFFF')
@@ -867,14 +938,14 @@ def habilitar_sincronizar(request, mac):
             fecha = televisor.fecha_sincronizar
             messages.success(
                 request,
-                f'[{televisor.mac_address}] SINCRONIZADO en el portal → '
+                f'[{televisor.mac_address}] SINCRONIZADO → '
                 f'quedó {estado(resultado.remoto_inhabilitado)}'
                 + (f' · fecha {fecha:%d/%m/%Y}' if fecha else ''),
             )
         else:
             messages.success(
                 request,
-                f'[{televisor.mac_address}] Ya estaba igual en el portal '
+                f'[{televisor.mac_address}] Ya estaba igual '
                 f'({estado(resultado.remoto_inhabilitado)}), no se cambió nada.',
             )
         return JsonResponse({'ok': True, 'redirect': reverse('televisor_list')})
@@ -951,7 +1022,7 @@ def registro_sync_tv_pincodes_export(request, mac):
     ws = wb.active
     ws.title = 'Pin Codes'
 
-    headers = ['Fecha', 'Mac Address', 'Passcode', 'Pin Code', 'Quién lo generó']
+    headers = ['Fecha', 'Mac Address', 'Código de acceso', 'Código Pin', 'Quién lo generó']
     ws.append(headers)
     header_fill = PatternFill('solid', fgColor='F6186A')
     header_font = Font(bold=True, color='FFFFFF')
@@ -999,7 +1070,21 @@ def televisor_historico(request, pk):
             inhabilitacion.serial_number = televisor.serial_number
             inhabilitacion.save()
             estado = 'Inhabilitado' if inhabilitacion.estado else 'Habilitado'
-            messages.success(request, f'Estado registrado: {estado}.')
+            # Al guardar, sincronizamos de una vez el estado con el portal
+            # (sin pedir confirmación). El front muestra un modal con la barra.
+            job, ya_activo = _lanzar_sync_job(request, [televisor])
+
+            es_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            if es_ajax:
+                return JsonResponse({
+                    'ok': True,
+                    'estado': estado,
+                    'job': job.pk if job else None,
+                    'ya_activo': bool(ya_activo),
+                    'api': reverse('sync_progreso_api', args=[job.pk]) if job else '',
+                })
+
+            messages.success(request, f'Estado guardado: {estado}.')
             return redirect('televisor_historico', pk=televisor.pk)
     else:
         form = InhabilitacionForm()
@@ -1335,8 +1420,27 @@ def inhabilitacion_import(request):
             'total': creados + actualizados,
         }
 
-        # Guardamos los IDs en sesión para poder sincronizar solo esos televisores.
-        request.session['sync_cambios_pks'] = [tv.pk for tv, _ in cambiados]
+        # Si hubo cambios de estado, sincronizamos de una vez con el portal
+        # (sin pedir aprobación) y llevamos al usuario a la barra de progreso.
+        if cambiados:
+            televisores_cambiados = [tv for tv, _ in cambiados]
+            job, ya_activo = _lanzar_sync_job(request, televisores_cambiados)
+            n = len(televisores_cambiados)
+            resumen = (
+                f'Importación lista: {creados} creados, {actualizados} actualizados'
+                + (f', {len(errores)} con error' if errores else '')
+                + f'. {n} televisor{"es" if n != 1 else ""} con cambio de estado.'
+            )
+            if job and ya_activo:
+                messages.info(
+                    request,
+                    resumen + ' Ya hay una sincronización en curso; los cambios se '
+                    'aplicarán en la próxima.',
+                )
+                return redirect('sync_progreso', pk=job.pk)
+            if job:
+                messages.success(request, resumen + ' Sincronizando…')
+                return redirect('sync_progreso', pk=job.pk)
 
         cambios = [{
             'mac': tv.mac_address,
